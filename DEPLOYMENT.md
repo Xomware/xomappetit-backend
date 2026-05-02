@@ -36,6 +36,7 @@ Each Lambda function needs these environment variables configured:
 |----------|-------------|---------|
 | `MEALS_TABLE_NAME` | DynamoDB meals table name | `meals` |
 | `RATINGS_TABLE_NAME` | DynamoDB ratings table name | `meal-ratings` |
+| `COMMENTS_TABLE_NAME` | DynamoDB comments table name | `meal-comments` |
 | `AUTH_HASH_PARAM` | SSM parameter path for auth hash | `/meals-app/auth-hash` |
 
 > **Note:** `AUTH_HASH_PARAM` is only needed by the authorizer function.

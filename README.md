@@ -13,18 +13,23 @@ Serverless backend for the Meals tracking application. Built with AWS Lambda, AP
 
 ```
 functions/
-  authorizer/index.js      # X-Auth-Hash validation against SSM
-  meals-list/index.js       # GET /meals
-  meals-create/index.js     # POST /meals
-  meals-get/index.js        # GET /meals/{id}
-  meals-update/index.js     # PATCH /meals/{id}/toggle-cooked
-  meals-delete/index.js     # DELETE /meals/{id}
-  meals-rate/index.js       # PATCH /meals/{id}/rate
-  meals-ratings/index.js    # GET /meals/{id}/ratings
+  authorizer/index.js              # X-Auth-Hash validation against SSM
+  meals-list/index.js              # GET /meals
+  meals-create/index.js            # POST /meals
+  meals-get/index.js               # GET /meals/{id}
+  meals-edit/index.js              # PATCH /meals/{id}
+  meals-update/index.js            # PATCH /meals/{id}/toggle-cooked
+  meals-delete/index.js            # DELETE /meals/{id}
+  meals-rate/index.js              # PATCH /meals/{id}/rate
+  meals-ratings/index.js           # GET /meals/{id}/ratings
+  meals-comment-add/index.js       # POST /meals/{id}/comments
+  meals-comments-list/index.js     # GET /meals/{id}/comments
+  meals-comment-delete/index.js    # DELETE /meals/{id}/comments/{commentId}
 shared/
-  auth.js                   # Extract userId from authorizer context
-  dynamo.js                 # DynamoDB DocumentClient singleton
-  response.js               # Standardized CORS response helpers
+  auth.js                          # Extract userId from authorizer context
+  dynamo.js                        # DynamoDB DocumentClient singleton
+  ingredients.js                   # Ingredient + meal normalization helpers
+  response.js                      # Standardized CORS response helpers
 ```
 
 ## API Reference
@@ -50,13 +55,24 @@ Returns an array of all meals for the authenticated user.
     "timeMinutes": 25,
     "difficulty": "Easy",
     "proteinSource": "Chicken",
-    "ingredients": ["chicken breast", "broccoli", "soy sauce"],
+    "ingredients": [
+      { "name": "chicken breast", "quantity": 1, "unit": "lb" },
+      { "name": "broccoli", "quantity": 2, "unit": "cups" },
+      { "name": "soy sauce", "quantity": 3, "unit": "tbsp" }
+    ],
+    "instructions": [
+      "Heat oil in a wok over high heat",
+      "Add chicken, stir-fry until cooked through",
+      "Add broccoli and soy sauce, toss to combine"
+    ],
     "macros": { "calories": 450, "protein": 40, "carbs": 20, "fat": 15 },
     "cooked": false,
     "createdAt": "2026-03-01T12:00:00.000Z"
   }
 ]
 ```
+
+> **Note:** Legacy meals with `ingredients` as `List<String>` are auto-normalized on read into `{ name, quantity: null, unit: null }`. New writes always use the structured shape.
 
 ### Create Meal
 
@@ -71,12 +87,31 @@ POST /meals
   "timeMinutes": 25,
   "difficulty": "Easy",
   "proteinSource": "Chicken",
-  "ingredients": ["chicken breast", "broccoli", "soy sauce"],
+  "ingredients": [
+    { "name": "chicken breast", "quantity": 1, "unit": "lb" },
+    { "name": "broccoli", "quantity": 2, "unit": "cups" }
+  ],
+  "instructions": [
+    "Heat oil in a wok",
+    "Add chicken, then broccoli"
+  ],
   "macros": { "calories": 450, "protein": 40, "carbs": 20, "fat": 15 }
 }
 ```
 
 **Response:** `201 Created` — returns the created meal object.
+
+### Edit Meal
+
+```
+PATCH /meals/{id}
+```
+
+General field update for an existing meal. Editable fields: `name`, `timeMinutes`, `difficulty`, `proteinSource`, `ingredients`, `instructions`, `macros`. Other fields (e.g. `userId`, `mealId`, `createdAt`, `cooked`) are ignored.
+
+**Body:** any subset of editable fields.
+
+**Response:** `200 OK` — returns the updated meal object.
 
 ### Get Meal
 
@@ -132,6 +167,51 @@ GET /meals/{id}/ratings
 ```
 
 **Response:** `200 OK` — returns an array of rating records for the meal.
+
+### List Comments
+
+```
+GET /meals/{id}/comments
+```
+
+**Response:** `200 OK` — returns an array of comments sorted oldest → newest.
+
+```json
+[
+  {
+    "mealId": "uuid",
+    "commentId": "uuid",
+    "userId": "abc123",
+    "body": "Tried this with extra garlic, way better.",
+    "createdAt": "2026-04-15T18:32:00.000Z"
+  }
+]
+```
+
+### Add Comment
+
+```
+POST /meals/{id}/comments
+```
+
+**Body:**
+```json
+{ "body": "Tried this with extra garlic, way better." }
+```
+
+`body` is required, max 2000 chars.
+
+**Response:** `201 Created` — returns the created comment.
+
+### Delete Comment
+
+```
+DELETE /meals/{id}/comments/{commentId}
+```
+
+Only the original author can delete their comment.
+
+**Response:** `204 No Content`
 
 ## Authentication
 
