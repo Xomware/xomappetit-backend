@@ -3,12 +3,14 @@
 const { DeleteCommand } = require('@aws-sdk/lib-dynamodb');
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
-const { noContent, notFound, serverError } = require('../../shared/response');
+const { noContent, badRequest, notFound, serverError } = require('../../shared/response');
 
 exports.handler = async (event) => {
   try {
     const userId = getUserId(event);
-    const mealId = event.pathParameters?.id;
+    const body = JSON.parse(event.body || '{}');
+    const mealId = body.id || body.mealId;
+    if (!mealId) return badRequest('id is required');
 
     const { Attributes } = await docClient.send(
       new DeleteCommand({

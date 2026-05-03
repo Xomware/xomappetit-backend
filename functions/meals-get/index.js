@@ -3,13 +3,15 @@
 const { GetCommand } = require('@aws-sdk/lib-dynamodb');
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
-const { ok, notFound, serverError } = require('../../shared/response');
+const { ok, badRequest, notFound, serverError } = require('../../shared/response');
 const { normalizeMeal } = require('../../shared/ingredients');
 
 exports.handler = async (event) => {
   try {
     const userId = getUserId(event);
-    const mealId = event.pathParameters?.id;
+    const body = JSON.parse(event.body || '{}');
+    const mealId = body.id || body.mealId;
+    if (!mealId) return badRequest('id is required');
 
     const { Item } = await docClient.send(
       new GetCommand({

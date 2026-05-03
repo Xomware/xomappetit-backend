@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 env:
-  APP_NAME: meals
+  APP_NAME: xomappetit
   AWS_REGION: us-east-1
 
 jobs:

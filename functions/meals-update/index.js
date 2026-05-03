@@ -3,14 +3,15 @@
 const { GetCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
-const { ok, notFound, serverError } = require('../../shared/response');
+const { ok, badRequest, notFound, serverError } = require('../../shared/response');
 
 exports.handler = async (event) => {
   try {
     const userId = getUserId(event);
-    const mealId = event.pathParameters?.id;
+    const body = JSON.parse(event.body || '{}');
+    const mealId = body.id || body.mealId;
+    if (!mealId) return badRequest('id is required');
 
-    // Get current state
     const { Item } = await docClient.send(
       new GetCommand({
         TableName: process.env.MEALS_TABLE_NAME,
@@ -20,7 +21,6 @@ exports.handler = async (event) => {
 
     if (!Item) return notFound('Meal not found');
 
-    // Toggle cooked
     const { Attributes } = await docClient.send(
       new UpdateCommand({
         TableName: process.env.MEALS_TABLE_NAME,

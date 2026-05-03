@@ -9,8 +9,9 @@ const { created, badRequest, notFound, serverError } = require('../../shared/res
 exports.handler = async (event) => {
   try {
     const userId = getUserId(event);
-    const mealId = event.pathParameters?.id;
     const body = JSON.parse(event.body || '{}');
+    const mealId = body.mealId || body.id;
+    if (!mealId) return badRequest('mealId is required');
 
     const text = String(body.body || '').trim();
     if (!text) return badRequest('body is required');

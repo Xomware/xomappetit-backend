@@ -8,10 +8,10 @@ const { ok, badRequest, notFound, serverError } = require('../../shared/response
 exports.handler = async (event) => {
   try {
     const userId = getUserId(event);
-    const mealId = event.pathParameters?.id;
     const body = JSON.parse(event.body || '{}');
+    const mealId = body.id || body.mealId;
+    if (!mealId) return badRequest('id is required');
 
-    // Validate rating fields
     const { taste, ease, speed, healthiness, notes } = body;
     if (taste == null || ease == null || speed == null || healthiness == null) {
       return badRequest('taste, ease, speed, and healthiness are required');

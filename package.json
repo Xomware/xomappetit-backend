@@ -1,7 +1,7 @@
 {
-  "name": "meals-backend",
+  "name": "xomappetit-backend",
   "version": "1.0.0",
-  "description": "Lambda functions for the Meals tracking API",
+  "description": "Lambda functions for the Xom Appétit API (meal tracking)",
   "private": true,
   "engines": {
     "node": ">=20.0.0"

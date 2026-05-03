@@ -1,4 +1,6 @@
-# DynamoDB Schema
+# DynamoDB Schema — Xom Appétit
+
+> Table names below are the bare logical names. The deployed names are prefixed with `xomappetit-` (e.g. `xomappetit-meals`, `xomappetit-meal-ratings`, `xomappetit-meal-comments`).
 
 ## `meals` Table
 
