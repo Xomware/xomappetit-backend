@@ -5,6 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
 const { created, badRequest, serverError } = require('../../shared/response');
+const { normalizeIngredients } = require('../../shared/ingredients');
 
 exports.handler = async (event) => {
   try {
@@ -16,12 +17,13 @@ exports.handler = async (event) => {
     const meal = {
       userId,
       mealId: uuidv4(),
-      id: undefined, // set below
+      id: undefined,
       name: body.name,
       timeMinutes: body.timeMinutes || 0,
       difficulty: body.difficulty || 'Easy',
       proteinSource: body.proteinSource || '',
-      ingredients: body.ingredients || [],
+      ingredients: normalizeIngredients(body.ingredients),
+      instructions: Array.isArray(body.instructions) ? body.instructions : [],
       macros: body.macros || { calories: 0, protein: 0, carbs: 0, fat: 0 },
       cooked: false,
       createdAt: new Date().toISOString(),

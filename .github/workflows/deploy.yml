@@ -5,12 +5,8 @@ on:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  id-token: write
-  contents: read
-
 env:
-  APP_NAME: meals
+  APP_NAME: xomappetit
   AWS_REGION: us-east-1
 
 jobs:
@@ -25,23 +21,28 @@ jobs:
 
       - run: npm install
 
-      - name: Configure AWS Credentials
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Bundle and Deploy Lambdas
+      - name: Bundle and deploy lambdas
         run: |
           FUNCTIONS=(
             "authorizer:authorizer"
             "meals-create:meals-create"
             "meals-delete:meals-delete"
+            "meals-edit:meals-edit"
             "meals-get:meals-get"
             "meals-list:meals-list"
             "meals-rate:meals-rate"
             "meals-ratings:meals-ratings"
             "meals-update:meals-update"
+            "meals-comment-add:meals-comment-add"
+            "meals-comments-list:meals-comments-list"
+            "meals-comment-delete:meals-comment-delete"
           )
 
           for entry in "${FUNCTIONS[@]}"; do
@@ -58,26 +59,23 @@ jobs:
             cp package.json /tmp/bundle/
 
             cd /tmp/bundle
-            npm ci --omit=dev --ignore-scripts
-            zip -r /tmp/${fn_name}.zip . -x '*.git*'
+            npm install --omit=dev --ignore-scripts
+            zip -r /tmp/${fn_name}.zip . -x '*.git*' >/dev/null
             cd -
 
-            echo "=== Uploading $fn_name to S3 ==="
-            aws s3 cp /tmp/${fn_name}.zip s3://${{ secrets.LAMBDA_BUCKET }}/${fn_name}.zip
-
-            echo "=== Updating Lambda $lambda_name ==="
+            echo "=== Updating $lambda_name ==="
             aws lambda update-function-code \
               --function-name "$lambda_name" \
-              --s3-bucket "${{ secrets.LAMBDA_BUCKET }}" \
-              --s3-key "${fn_name}.zip" \
-              --publish
+              --zip-file "fileb:///tmp/${fn_name}.zip" \
+              --publish \
+              --no-cli-pager >/dev/null
 
             echo "✓ $fn_name deployed"
           done
 
       - name: Wait for updates to stabilize
         run: |
-          for fn in authorizer meals-create meals-delete meals-get meals-list meals-rate meals-ratings meals-update; do
+          for fn in authorizer meals-create meals-delete meals-edit meals-get meals-list meals-rate meals-ratings meals-update meals-comment-add meals-comments-list meals-comment-delete; do
             echo "Waiting for ${APP_NAME}-${fn}..."
             aws lambda wait function-updated --function-name "${APP_NAME}-${fn}" 2>/dev/null || true
           done

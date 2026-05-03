@@ -4,6 +4,7 @@ const { QueryCommand } = require('@aws-sdk/lib-dynamodb');
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
 const { ok, serverError } = require('../../shared/response');
+const { normalizeMeal } = require('../../shared/ingredients');
 
 exports.handler = async (event) => {
   try {
@@ -17,7 +18,7 @@ exports.handler = async (event) => {
       })
     );
 
-    return ok(Items);
+    return ok(Items.map(normalizeMeal));
   } catch (err) {
     console.error('meals-list error:', err);
     return serverError(err.message);

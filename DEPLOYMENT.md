@@ -1,10 +1,10 @@
-# Deployment Guide
+# Deployment Guide — Xom Appétit Backend
 
 ## Prerequisites
 
 - AWS CLI configured with appropriate credentials
 - Node.js 20.x
-- Lambda functions deployed via AWS CDK (see `meals-infra` repo)
+- Lambda functions deployed via Terraform (see [`xomappetit-infrastructure`](https://github.com/Xomware/xomappetit-infrastructure) repo)
 
 ## Installing Dependencies
 
@@ -34,17 +34,15 @@ Each Lambda function needs these environment variables configured:
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `MEALS_TABLE_NAME` | DynamoDB meals table name | `meals` |
-| `RATINGS_TABLE_NAME` | DynamoDB ratings table name | `meal-ratings` |
-| `AUTH_HASH_PARAM` | SSM parameter path for auth hash | `/meals-app/auth-hash` |
+| `MEALS_TABLE_NAME` | DynamoDB meals table name | `xomappetit-meals` |
+| `RATINGS_TABLE_NAME` | DynamoDB ratings table name | `xomappetit-meal-ratings` |
+| `COMMENTS_TABLE_NAME` | DynamoDB comments table name | `xomappetit-meal-comments` |
+| `AUTH_HASH_PARAM` | SSM parameter path for auth hash | `/xomappetit/auth-hash` |
 
 > **Note:** `AUTH_HASH_PARAM` is only needed by the authorizer function.
 
-## CDK Deployment
+## Terraform Deployment
 
-The recommended deployment method is via the `meals-infra` CDK stack, which handles all Lambda creation, API Gateway routing, and environment configuration automatically.
+Lambda creation, API Gateway routing, DynamoDB, and IAM are managed by Terraform in the [`xomappetit-infrastructure`](https://github.com/Xomware/xomappetit-infrastructure) repo. The repo's `terraform.yml` GitHub Action runs `terraform plan` on PRs and `terraform apply` on merge to main.
 
-```bash
-cd ../meals-infra
-npx cdk deploy
-```
+After infra applies, this repo's `deploy.yml` workflow updates each Lambda's code from a zip uploaded to S3 — that runs automatically on push to `main`.
