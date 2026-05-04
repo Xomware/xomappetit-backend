@@ -7,25 +7,38 @@ const { ok, serverError } = require('../../shared/response');
 const { normalizeRecipe } = require('../../shared/ingredients');
 
 /**
- * List the caller's recipes via the author-index GSI, newest first.
+ * List recipes by author via the `author-index` GSI, newest first.
  *
- * v1 scope: caller's recipes only — no public feed yet (Phase 1.5).
+ *   - No body: returns the caller's own recipes (all privacies).
+ *   - body.authorUserId = "<sub>": returns that user's recipes,
+ *     filtered to `privacy = 'public'` if they're not the caller.
+ *     Friends-only is treated as private until the friends feature
+ *     ships (matches recipes-get's stub behavior).
  */
 exports.handler = async (event) => {
   try {
-    const userId = getUserId(event);
+    const callerId = getUserId(event);
+    const body = JSON.parse(event.body || '{}');
+    const targetId = typeof body.authorUserId === 'string' && body.authorUserId
+      ? body.authorUserId
+      : callerId;
+    const isSelf = targetId === callerId;
 
     const { Items = [] } = await docClient.send(
       new QueryCommand({
         TableName: process.env.RECIPES_TABLE_NAME,
         IndexName: 'author-index',
         KeyConditionExpression: 'authorUserId = :uid',
-        ExpressionAttributeValues: { ':uid': userId },
+        ExpressionAttributeValues: { ':uid': targetId },
         ScanIndexForward: false, // newest first
       })
     );
 
-    return ok(Items.map(normalizeRecipe));
+    const visible = isSelf
+      ? Items
+      : Items.filter((r) => r.privacy === 'public');
+
+    return ok(visible.map(normalizeRecipe));
   } catch (err) {
     console.error('recipes-list error:', err);
     return serverError(err.message);

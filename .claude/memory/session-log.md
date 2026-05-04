@@ -19,3 +19,8 @@
 ### Next session: pick up here
 - [ ] Set up project CLAUDE.md with real stack details
 - [ ] Add any project-specific agents or skills
+
+---
+## Session 2026-05-04 (736a1067)
+> Auto-captured on Stop. Run /sync-memory to backfill from git if /end-session was skipped.
+
