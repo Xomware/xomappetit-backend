@@ -196,3 +196,14 @@
 /Users/dom/Code/meals-frontend/src/app/discover/page.tsx
 /Users/dom/Code/meals-frontend/src/app/u/view/page.tsx
 /Users/dom/Code/meals-frontend/src/components/Header.tsx
+/Users/dom/Code/meals-infrastructure/terraform/dynamodb_friendships.tf
+/Users/dom/Code/meals-infrastructure/terraform/locals.tf
+/Users/dom/Code/meals-infrastructure/terraform/lambdas_recipes_cooks.tf
+/Users/dom/Code/meals-infrastructure/terraform/lambdas_recipes_cooks.tf
+/Users/dom/Code/meals-infrastructure/terraform/api_gateway.tf
+/Users/dom/Code/meals-infrastructure/terraform/api_gateway.tf
+/Users/dom/Code/meals-backend/functions/friends-list/index.js
+/Users/dom/Code/meals-backend/functions/friends-add/index.js
+/Users/dom/Code/meals-backend/functions/friends-respond/index.js
+/Users/dom/Code/meals-backend/functions/friends-remove/index.js
+/Users/dom/Code/meals-backend/functions/friends-feed/index.js
