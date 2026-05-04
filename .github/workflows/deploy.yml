@@ -30,19 +30,13 @@ jobs:
 
       - name: Bundle and deploy lambdas
         run: |
-          FUNCTIONS=(
-            "meals-create:meals-create"
-            "meals-delete:meals-delete"
-            "meals-edit:meals-edit"
-            "meals-get:meals-get"
-            "meals-list:meals-list"
-            "meals-rate:meals-rate"
-            "meals-ratings:meals-ratings"
-            "meals-update:meals-update"
-            "meals-comment-add:meals-comment-add"
-            "meals-comments-list:meals-comments-list"
-            "meals-comment-delete:meals-comment-delete"
-          )
+          # Discover functions from disk so this workflow doesn't drift
+          # every time we add or rename a handler.
+          FUNCTIONS=()
+          for d in functions/*/; do
+            name="$(basename "$d")"
+            FUNCTIONS+=("$name:$name")
+          done
 
           for entry in "${FUNCTIONS[@]}"; do
             fn_dir="${entry%%:*}"
@@ -74,7 +68,8 @@ jobs:
 
       - name: Wait for updates to stabilize
         run: |
-          for fn in meals-create meals-delete meals-edit meals-get meals-list meals-rate meals-ratings meals-update meals-comment-add meals-comments-list meals-comment-delete; do
+          for d in functions/*/; do
+            fn="$(basename "$d")"
             echo "Waiting for ${APP_NAME}-${fn}..."
             aws lambda wait function-updated --function-name "${APP_NAME}-${fn}" 2>/dev/null || true
           done
