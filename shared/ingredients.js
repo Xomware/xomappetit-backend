@@ -19,13 +19,13 @@ const normalizeIngredients = (ingredients) => {
   return ingredients.map(normalizeIngredient).filter((i) => i.name);
 };
 
-const normalizeMeal = (meal) => {
-  if (!meal) return meal;
+const normalizeRecipe = (recipe) => {
+  if (!recipe) return recipe;
   return {
-    ...meal,
-    ingredients: normalizeIngredients(meal.ingredients),
-    instructions: Array.isArray(meal.instructions) ? meal.instructions : [],
+    ...recipe,
+    ingredients: normalizeIngredients(recipe.ingredients),
+    instructions: Array.isArray(recipe.instructions) ? recipe.instructions : [],
   };
 };
 
-module.exports = { normalizeIngredient, normalizeIngredients, normalizeMeal };
+module.exports = { normalizeIngredient, normalizeIngredients, normalizeRecipe };
