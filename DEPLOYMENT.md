@@ -37,9 +37,8 @@ Each Lambda function needs these environment variables configured:
 | `MEALS_TABLE_NAME` | DynamoDB meals table name | `xomappetit-meals` |
 | `RATINGS_TABLE_NAME` | DynamoDB ratings table name | `xomappetit-meal-ratings` |
 | `COMMENTS_TABLE_NAME` | DynamoDB comments table name | `xomappetit-meal-comments` |
-| `AUTH_HASH_PARAM` | SSM parameter path for auth hash | `/xomappetit/auth-hash` |
 
-> **Note:** `AUTH_HASH_PARAM` is only needed by the authorizer function.
+> **Note:** Authentication is handled by the API Gateway `COGNITO_USER_POOLS` authorizer using the shared **xomware-users** pool. Lambdas read JWT claims from `event.requestContext.authorizer.claims` — no auth-related env vars required.
 
 ## Terraform Deployment
 
