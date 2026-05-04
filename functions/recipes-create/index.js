@@ -7,39 +7,48 @@ const { getUserId } = require('../../shared/auth');
 const { created, badRequest, serverError } = require('../../shared/response');
 const { normalizeIngredients } = require('../../shared/ingredients');
 
+const VALID_PRIVACY = new Set(['public', 'friends', 'private']);
+
 exports.handler = async (event) => {
   try {
     const userId = getUserId(event);
     const body = JSON.parse(event.body || '{}');
 
-    if (!body.name) return badRequest('name is required');
+    if (!body.name || typeof body.name !== 'string' || !body.name.trim()) {
+      return badRequest('name is required');
+    }
 
-    const meal = {
-      userId,
-      mealId: uuidv4(),
-      id: undefined,
-      name: body.name,
-      timeMinutes: body.timeMinutes || 0,
+    const privacy = VALID_PRIVACY.has(body.privacy) ? body.privacy : 'public';
+    const now = new Date().toISOString();
+
+    const recipe = {
+      recipeId: uuidv4(),
+      authorUserId: userId,
+      name: body.name.trim(),
+      description: typeof body.description === 'string' ? body.description : '',
+      timeMinutes: Number.isFinite(body.timeMinutes) ? body.timeMinutes : 0,
       difficulty: body.difficulty || 'Easy',
       proteinSource: body.proteinSource || '',
       ingredients: normalizeIngredients(body.ingredients),
       instructions: Array.isArray(body.instructions) ? body.instructions : [],
       macros: body.macros || { calories: 0, protein: 0, carbs: 0, fat: 0 },
-      cooked: false,
-      createdAt: new Date().toISOString(),
+      privacy,
+      createdAt: now,
+      updatedAt: now,
+      cookCount: 0,
+      avgRating: null,
     };
-    meal.id = meal.mealId;
 
     await docClient.send(
       new PutCommand({
-        TableName: process.env.MEALS_TABLE_NAME,
-        Item: meal,
+        TableName: process.env.RECIPES_TABLE_NAME,
+        Item: recipe,
       })
     );
 
-    return created(meal);
+    return created(recipe);
   } catch (err) {
-    console.error('meals-create error:', err);
+    console.error('recipes-create error:', err);
     return serverError(err.message);
   }
 };
