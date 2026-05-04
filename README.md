@@ -6,7 +6,7 @@ Serverless backend for **Xom Appétit**, a meal-tracking app. Built with AWS Lam
 
 - **Runtime:** Node.js 20.x (CommonJS)
 - **Database:** DynamoDB (`xomappetit-meals`, `xomappetit-meal-ratings`, `xomappetit-meal-comments`)
-- **Auth:** `X-Auth-Hash` header validated by Lambda authorizer against AWS SSM Parameter Store
+- **Auth:** Cognito-issued JWT in `Authorization: Bearer <token>` header, validated by API Gateway's built-in `COGNITO_USER_POOLS` authorizer against the shared **xomware-users** Cognito pool
 - **API host:** `api.xomappetit.xomware.com`
 - **Infrastructure:** Defined in [`xomappetit-infrastructure`](https://github.com/Xomware/xomappetit-infrastructure)
 
@@ -18,7 +18,6 @@ Flat verb-style routes under the `/meals` service prefix. Resource IDs travel in
 
 ```
 functions/
-  authorizer/index.js              # X-Auth-Hash validation against SSM
   meals-list/index.js              # GET    /meals/list
   meals-create/index.js            # POST   /meals/create
   meals-get/index.js               # POST   /meals/get          (id in body)
@@ -31,7 +30,7 @@ functions/
   meals-comments-list/index.js     # POST   /meals/comments-list
   meals-comment-delete/index.js    # POST   /meals/comment-delete
 shared/
-  auth.js                          # Extract userId from authorizer context
+  auth.js                          # Extract userId (Cognito sub) + groups from JWT claims
   dynamo.js                        # DynamoDB DocumentClient singleton
   ingredients.js                   # Ingredient + meal normalization helpers
   response.js                      # Standardized CORS response helpers
@@ -39,7 +38,7 @@ shared/
 
 ## API Reference
 
-All endpoints require the `X-Auth-Hash` header for authentication. Bodies are JSON.
+All endpoints require a Cognito-issued JWT in the `Authorization: Bearer <token>` header. Bodies are JSON.
 
 ### List meals
 
@@ -226,7 +225,9 @@ Only the original author can delete their comment.
 
 ## Authentication
 
-All requests must include the `X-Auth-Hash` header. The Lambda authorizer validates this hash against an SSM parameter (`AUTH_HASH_PARAM`). A consistent `userId` is derived from the hash for data partitioning.
+All endpoints require a Cognito-issued JWT in the `Authorization: Bearer <token>` header. Tokens come from the **shared Xomware User Pool** (`xomware-users`, owned by `xomware-infrastructure`). Each lambda handler resolves the caller's identity via `shared/auth.js` reading `event.requestContext.authorizer.claims.sub` (Cognito `sub` UUID = `userId` partition key on every DynamoDB table).
+
+Sign-in flow lives in `xomappetit-frontend` (Amplify) or via the shared hosted UI at `xomware-auth.auth.us-east-1.amazoncognito.com`. Admin role is enforced via Cognito Group membership (`cognito:groups` claim).
 
 ## Setup
 

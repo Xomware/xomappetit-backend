@@ -31,7 +31,6 @@ jobs:
       - name: Bundle and deploy lambdas
         run: |
           FUNCTIONS=(
-            "authorizer:authorizer"
             "meals-create:meals-create"
             "meals-delete:meals-delete"
             "meals-edit:meals-edit"
@@ -75,7 +74,7 @@ jobs:
 
       - name: Wait for updates to stabilize
         run: |
-          for fn in authorizer meals-create meals-delete meals-edit meals-get meals-list meals-rate meals-ratings meals-update meals-comment-add meals-comments-list meals-comment-delete; do
+          for fn in meals-create meals-delete meals-edit meals-get meals-list meals-rate meals-ratings meals-update meals-comment-add meals-comments-list meals-comment-delete; do
             echo "Waiting for ${APP_NAME}-${fn}..."
             aws lambda wait function-updated --function-name "${APP_NAME}-${fn}" 2>/dev/null || true
           done
