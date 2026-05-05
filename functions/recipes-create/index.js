@@ -66,6 +66,12 @@ exports.handler = async (event) => {
       ratingCount: 0,
       spicinessAvg: null,
       spicinessCount: 0,
+      sweetnessAvg: null,
+      sweetnessCount: 0,
+      saltinessAvg: null,
+      saltinessCount: 0,
+      richnessAvg: null,
+      richnessCount: 0,
     };
 
     await docClient.send(

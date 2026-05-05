@@ -18,37 +18,53 @@ const {
 } = require('../../shared/response');
 
 /**
- * Upsert a rating row for (caller, recipe) and recompute aggregates on the
- * recipe row.
+ * Configurable rating axes. Adding a new axis is one entry here:
+ *   - bodyKey: what the API caller sends (e.g. 'sweetness')
+ *   - rowKey: column on the recipe-rating row (kept identical to bodyKey)
+ *   - recipeAvgKey/recipeCountKey: where to write the aggregates on the recipe row
  *
- * Multi-axis: body may include `rating` (overall, 1..5) and/or `spiciness`
- * (1..5). At least one axis must be provided. Each axis recomputes its own
- * avg/count from the partition.
+ * The 'rating'/'avgRating'/'ratingCount' triplet is legacy naming for the
+ * 'overall' axis — kept verbatim for back-compat with existing rows + the
+ * frontend's RecipeCard which reads avgRating/ratingCount directly.
  */
+const AXES = [
+  { bodyKey: 'rating',    rowKey: 'rating',    recipeAvgKey: 'avgRating',     recipeCountKey: 'ratingCount' },
+  { bodyKey: 'spiciness', rowKey: 'spiciness', recipeAvgKey: 'spicinessAvg',  recipeCountKey: 'spicinessCount' },
+  { bodyKey: 'sweetness', rowKey: 'sweetness', recipeAvgKey: 'sweetnessAvg',  recipeCountKey: 'sweetnessCount' },
+  { bodyKey: 'saltiness', rowKey: 'saltiness', recipeAvgKey: 'saltinessAvg',  recipeCountKey: 'saltinessCount' },
+  { bodyKey: 'richness',  rowKey: 'richness',  recipeAvgKey: 'richnessAvg',   recipeCountKey: 'richnessCount' },
+];
+
+function validAxis(n) {
+  return Number.isFinite(n) && n >= 1 && n <= 5;
+}
+
 exports.handler = async (event) => {
   try {
     const userId = getUserId(event);
     const body = JSON.parse(event.body || '{}');
     const recipeId = body.id || body.recipeId;
-
     if (!recipeId) return badRequest('recipeId is required');
 
-    const overall = body.rating === null || body.rating === undefined
-      ? null
-      : Number(body.rating);
-    const spiciness = body.spiciness === null || body.spiciness === undefined
-      ? null
-      : Number(body.spiciness);
-
-    const validAxis = (n) => Number.isFinite(n) && n >= 1 && n <= 5;
-    if (overall === null && spiciness === null) {
-      return badRequest('Provide rating and/or spiciness (1..5)');
+    // Pull every axis the caller sent, validate, default null otherwise.
+    const incoming = {};
+    let anyProvided = false;
+    for (const axis of AXES) {
+      const raw = body[axis.bodyKey];
+      if (raw === null || raw === undefined) {
+        incoming[axis.rowKey] = null;
+        continue;
+      }
+      const n = Number(raw);
+      if (!validAxis(n)) {
+        return badRequest(`${axis.bodyKey} must be a number between 1 and 5`);
+      }
+      incoming[axis.rowKey] = n;
+      anyProvided = true;
     }
-    if (overall !== null && !validAxis(overall)) {
-      return badRequest('rating must be a number between 1 and 5');
-    }
-    if (spiciness !== null && !validAxis(spiciness)) {
-      return badRequest('spiciness must be a number between 1 and 5');
+    if (!anyProvided) {
+      const list = AXES.map((a) => a.bodyKey).join(' / ');
+      return badRequest(`Provide at least one axis: ${list} (1..5)`);
     }
 
     const { Item: recipe } = await docClient.send(
@@ -67,7 +83,7 @@ exports.handler = async (event) => {
 
     const now = new Date().toISOString();
 
-    // Read existing row to preserve axes the caller didn't include this time.
+    // Read existing rating row so axes the caller skipped this round are preserved.
     const { Item: existing } = await docClient.send(
       new GetCommand({
         TableName: process.env.RECIPE_RATINGS_TABLE_NAME,
@@ -75,13 +91,13 @@ exports.handler = async (event) => {
       })
     );
 
-    const item = {
-      recipeId,
-      userId,
-      rating: overall !== null ? overall : (existing?.rating ?? null),
-      spiciness: spiciness !== null ? spiciness : (existing?.spiciness ?? null),
-      updatedAt: now,
-    };
+    const item = { recipeId, userId, updatedAt: now };
+    for (const axis of AXES) {
+      item[axis.rowKey] =
+        incoming[axis.rowKey] !== null
+          ? incoming[axis.rowKey]
+          : existing?.[axis.rowKey] ?? null;
+    }
 
     await docClient.send(
       new PutCommand({
@@ -90,7 +106,7 @@ exports.handler = async (event) => {
       })
     );
 
-    // Recompute aggregates from the partition.
+    // Recompute aggregates for every axis from the partition.
     const { Items: ratings = [] } = await docClient.send(
       new QueryCommand({
         TableName: process.env.RECIPE_RATINGS_TABLE_NAME,
@@ -99,43 +115,42 @@ exports.handler = async (event) => {
       })
     );
 
-    const overallVals = ratings.map((r) => Number(r.rating)).filter(Number.isFinite);
-    const spiceVals = ratings.map((r) => Number(r.spiciness)).filter(Number.isFinite);
+    const setExprs = ['updatedAt = :now'];
+    const exprValues = { ':now': now };
+    const exprNames = {};
+    const summary = { recipeId, userId };
 
-    const avg = (xs) =>
-      xs.length === 0 ? null : Number((xs.reduce((s, v) => s + v, 0) / xs.length).toFixed(2));
-
-    const avgRating = avg(overallVals);
-    const ratingCount = overallVals.length;
-    const spicinessAvg = avg(spiceVals);
-    const spicinessCount = spiceVals.length;
+    for (const axis of AXES) {
+      const vals = ratings.map((r) => Number(r[axis.rowKey])).filter(Number.isFinite);
+      const count = vals.length;
+      const avg =
+        count === 0
+          ? null
+          : Number((vals.reduce((s, v) => s + v, 0) / count).toFixed(2));
+      const avgPlaceholder = `:${axis.recipeAvgKey}`;
+      const cntPlaceholder = `:${axis.recipeCountKey}`;
+      setExprs.push(`#${axis.recipeAvgKey} = ${avgPlaceholder}`);
+      setExprs.push(`#${axis.recipeCountKey} = ${cntPlaceholder}`);
+      exprNames[`#${axis.recipeAvgKey}`] = axis.recipeAvgKey;
+      exprNames[`#${axis.recipeCountKey}`] = axis.recipeCountKey;
+      exprValues[avgPlaceholder] = avg;
+      exprValues[cntPlaceholder] = count;
+      summary[axis.recipeAvgKey] = avg;
+      summary[axis.recipeCountKey] = count;
+      summary[axis.bodyKey] = item[axis.rowKey];
+    }
 
     await docClient.send(
       new UpdateCommand({
         TableName: process.env.RECIPES_TABLE_NAME,
         Key: { recipeId },
-        UpdateExpression:
-          'SET avgRating = :avg, ratingCount = :cnt, spicinessAvg = :sAvg, spicinessCount = :sCnt, updatedAt = :now',
-        ExpressionAttributeValues: {
-          ':avg': avgRating,
-          ':cnt': ratingCount,
-          ':sAvg': spicinessAvg,
-          ':sCnt': spicinessCount,
-          ':now': now,
-        },
+        UpdateExpression: `SET ${setExprs.join(', ')}`,
+        ExpressionAttributeNames: exprNames,
+        ExpressionAttributeValues: exprValues,
       })
     );
 
-    return ok({
-      recipeId,
-      userId,
-      rating: item.rating,
-      spiciness: item.spiciness,
-      avgRating,
-      ratingCount,
-      spicinessAvg,
-      spicinessCount,
-    });
+    return ok(summary);
   } catch (err) {
     console.error('recipes-rate error:', err);
     return serverError(err.message);

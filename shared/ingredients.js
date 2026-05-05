@@ -176,6 +176,12 @@ function normalizeRecipe(recipe) {
     macrosScope: normalizeMacrosScope(recipe.macrosScope),
     spicinessAvg: recipe.spicinessAvg ?? null,
     spicinessCount: Number.isFinite(recipe.spicinessCount) ? recipe.spicinessCount : 0,
+    sweetnessAvg: recipe.sweetnessAvg ?? null,
+    sweetnessCount: Number.isFinite(recipe.sweetnessCount) ? recipe.sweetnessCount : 0,
+    saltinessAvg: recipe.saltinessAvg ?? null,
+    saltinessCount: Number.isFinite(recipe.saltinessCount) ? recipe.saltinessCount : 0,
+    richnessAvg: recipe.richnessAvg ?? null,
+    richnessCount: Number.isFinite(recipe.richnessCount) ? recipe.richnessCount : 0,
   };
 }
 
