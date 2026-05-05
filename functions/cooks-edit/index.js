@@ -10,6 +10,7 @@ const {
   notFound,
   serverError,
 } = require('../../shared/response');
+const { recomputeRecipeAggregatesFromCooks } = require('../../shared/cook-aggregates');
 
 // chefs/diners are intentionally NOT editable — changing them would orphan
 // or duplicate rows in cook-participants. Delete + re-log instead.
@@ -18,7 +19,13 @@ const EDITABLE_FIELDS = new Set([
   'notes',
   'photoUrl',
   'rating',
+  'spiciness',
+  'sweetness',
+  'saltiness',
+  'richness',
 ]);
+
+const RATING_AXES = new Set(['rating', 'spiciness', 'sweetness', 'saltiness', 'richness']);
 
 /**
  * Edit a cook session. Only chefs (anyone in cook.chefs) can edit.
@@ -52,13 +59,14 @@ exports.handler = async (event) => {
     const updates = {};
     for (const key of Object.keys(body)) {
       if (!EDITABLE_FIELDS.has(key)) continue;
-      if (key === 'rating') {
-        if (body.rating === null) {
-          updates.rating = null;
-        } else if (Number.isFinite(body.rating) && body.rating >= 1 && body.rating <= 5) {
-          updates.rating = body.rating;
+      if (RATING_AXES.has(key)) {
+        const v = body[key];
+        if (v === null) {
+          updates[key] = null;
+        } else if (Number.isFinite(v) && v >= 1 && v <= 5) {
+          updates[key] = v;
         } else {
-          return badRequest('rating must be null or a number between 1 and 5');
+          return badRequest(`${key} must be null or a number between 1 and 5`);
         }
       } else {
         updates[key] = body[key];
@@ -90,6 +98,17 @@ exports.handler = async (event) => {
         ReturnValues: 'ALL_NEW',
       })
     );
+
+    // If a rating axis changed, refresh the recipe's aggregates so the
+    // recipe card stays in sync with what cooks actually rated.
+    const ratingChanged = Object.keys(updates).some((k) => RATING_AXES.has(k));
+    if (ratingChanged && cook.recipeId) {
+      try {
+        await recomputeRecipeAggregatesFromCooks(cook.recipeId);
+      } catch (err) {
+        console.error('cooks-edit: aggregate recompute failed', err);
+      }
+    }
 
     return ok(Attributes);
   } catch (err) {
