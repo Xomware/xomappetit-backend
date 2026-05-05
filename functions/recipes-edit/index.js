@@ -21,6 +21,7 @@ const {
   normalizeMacros,
   normalizeRecipe,
 } = require('../../shared/ingredients');
+const { detectProteinTypes } = require('../../shared/protein-detect');
 
 const EDITABLE_FIELDS = new Set([
   'name',
@@ -97,6 +98,13 @@ exports.handler = async (event) => {
 
     if (Object.keys(updates).length === 0) {
       return badRequest('No editable fields provided');
+    }
+
+    // If ingredients changed but the caller didn't explicitly override
+    // proteinTypes, re-derive proteins from the new ingredient list. Keeps
+    // the recipe's "this contains chicken" tag honest after edits.
+    if (updates.ingredients && !('proteinTypes' in body)) {
+      updates.proteinTypes = detectProteinTypes(updates.ingredients);
     }
 
     updates.updatedAt = new Date().toISOString();

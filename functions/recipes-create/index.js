@@ -15,6 +15,7 @@ const {
   normalizeMacrosScope,
   normalizeMacros,
 } = require('../../shared/ingredients');
+const { detectProteinTypes } = require('../../shared/protein-detect');
 
 const VALID_PRIVACY = new Set(['public', 'friends', 'private']);
 
@@ -52,7 +53,14 @@ exports.handler = async (event) => {
       difficulty: normalizeDifficulty(body.difficulty),
       // Free-text proteinSource kept for back-compat / search; new structured field is proteinTypes.
       proteinSource: typeof body.proteinSource === 'string' ? body.proteinSource : '',
-      proteinTypes: normalizeProteinTypes(body.proteinTypes ?? []),
+      // proteinTypes is derived from the ingredient list — the user shouldn't
+      // have to repeat themselves. Honor an explicit override if the caller
+      // (typically the importer) sent a non-empty list.
+      proteinTypes: (() => {
+        const fromBody = normalizeProteinTypes(body.proteinTypes ?? []);
+        if (fromBody.length > 0) return fromBody;
+        return detectProteinTypes(normalizeIngredients(body.ingredients));
+      })(),
       tags: normalizeTags(body.tags ?? []),
       ingredients: normalizeIngredients(body.ingredients),
       instructions: normalizeInstructions(body.instructions),
