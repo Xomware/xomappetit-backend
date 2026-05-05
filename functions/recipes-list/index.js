@@ -3,17 +3,19 @@
 const { QueryCommand } = require('@aws-sdk/lib-dynamodb');
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
+const { isFriend } = require('../../shared/friendships');
 const { ok, serverError } = require('../../shared/response');
 const { normalizeRecipe } = require('../../shared/ingredients');
 
 /**
  * List recipes by author via the `author-index` GSI, newest first.
  *
- *   - No body: returns the caller's own recipes (all privacies).
- *   - body.authorUserId = "<sub>": returns that user's recipes,
- *     filtered to `privacy = 'public'` if they're not the caller.
- *     Friends-only is treated as private until the friends feature
- *     ships (matches recipes-get's stub behavior).
+ *   - No body: caller's own recipes (all privacies).
+ *   - body.authorUserId = "<sub>": that user's recipes, filtered by
+ *     privacy according to the friendship state:
+ *       * self      -> all
+ *       * friend    -> public + friends
+ *       * stranger  -> public only
  */
 exports.handler = async (event) => {
   try {
@@ -30,13 +32,17 @@ exports.handler = async (event) => {
         IndexName: 'author-index',
         KeyConditionExpression: 'authorUserId = :uid',
         ExpressionAttributeValues: { ':uid': targetId },
-        ScanIndexForward: false, // newest first
+        ScanIndexForward: false,
       })
     );
 
-    const visible = isSelf
-      ? Items
-      : Items.filter((r) => r.privacy === 'public');
+    let visible = Items;
+    if (!isSelf) {
+      const allowedPrivacies = (await isFriend(callerId, targetId))
+        ? new Set(['public', 'friends'])
+        : new Set(['public']);
+      visible = Items.filter((r) => allowedPrivacies.has(r.privacy));
+    }
 
     return ok(visible.map(normalizeRecipe));
   } catch (err) {
