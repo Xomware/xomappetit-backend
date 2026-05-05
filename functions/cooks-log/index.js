@@ -3,7 +3,6 @@
 const {
   GetCommand,
   TransactWriteCommand,
-  UpdateCommand,
 } = require('@aws-sdk/lib-dynamodb');
 const { v4: uuidv4 } = require('uuid');
 const { docClient } = require('../../shared/dynamo');
@@ -15,6 +14,10 @@ const {
   notFound,
   serverError,
 } = require('../../shared/response');
+const {
+  readAxesFromBody,
+  recomputeRecipeAggregatesFromCooks,
+} = require('../../shared/cook-aggregates');
 
 const MAX_PARTICIPANTS = 25; // sanity cap; transact-write supports 100 items
 
@@ -63,10 +66,20 @@ exports.handler = async (event) => {
       ? body.cookedAt
       : new Date().toISOString();
     const chefs = uniqueIds(body.chefs, userId);
-    const diners = uniqueIds(body.diners).filter((d) => !chefs.includes(d));
+    // Allow same user in both chefs and diners — 'I cooked it AND ate it'
+    // is the default case. cook-participants dedupes (chef wins as the
+    // canonical role for that user's cook listing).
+    const diners = uniqueIds(body.diners);
 
     if (chefs.length + diners.length > MAX_PARTICIPANTS) {
       return badRequest(`Too many participants (max ${MAX_PARTICIPANTS})`);
+    }
+
+    let axes;
+    try {
+      axes = readAxesFromBody(body);
+    } catch (e) {
+      return badRequest(e.message);
     }
 
     const now = new Date().toISOString();
@@ -78,17 +91,30 @@ exports.handler = async (event) => {
       diners,
       notes: typeof body.notes === 'string' ? body.notes : '',
       photoUrl: typeof body.photoUrl === 'string' ? body.photoUrl : '',
-      rating: Number.isFinite(body.rating) ? body.rating : null,
+      rating: axes.rating ?? null,
+      spiciness: axes.spiciness ?? null,
+      sweetness: axes.sweetness ?? null,
+      saltiness: axes.saltiness ?? null,
+      richness: axes.richness ?? null,
       loggedByUserId: userId,
       createdAt: now,
       updatedAt: now,
     };
 
     const sortKey = `${cookedAt}#${cookId}`;
-    const participantItems = [
-      ...chefs.map((uid) => ({ userId: uid, cookedAtCookId: sortKey, cookId, recipeId, role: 'chef', cookedAt })),
-      ...diners.map((uid) => ({ userId: uid, cookedAtCookId: sortKey, cookId, recipeId, role: 'diner', cookedAt })),
-    ];
+    // Dedupe participants: one row per (user, cook). Chef wins as the
+    // canonical role since SK is `cookedAt#cookId` (unique per user+cook).
+    const seen = new Set();
+    const participantItems = [];
+    for (const uid of chefs) {
+      participantItems.push({ userId: uid, cookedAtCookId: sortKey, cookId, recipeId, role: 'chef', cookedAt });
+      seen.add(uid);
+    }
+    for (const uid of diners) {
+      if (seen.has(uid)) continue;
+      participantItems.push({ userId: uid, cookedAtCookId: sortKey, cookId, recipeId, role: 'diner', cookedAt });
+      seen.add(uid);
+    }
 
     await docClient.send(
       new TransactWriteCommand({
@@ -101,17 +127,13 @@ exports.handler = async (event) => {
       })
     );
 
-    // Bump recipe.cookCount outside the transaction — best-effort counter
-    // (transact-write across 5+ tables hits the 100-item cap fast and the
-    // count is non-critical metadata).
-    await docClient.send(
-      new UpdateCommand({
-        TableName: process.env.RECIPES_TABLE_NAME,
-        Key: { recipeId },
-        UpdateExpression: 'SET cookCount = if_not_exists(cookCount, :zero) + :one, updatedAt = :now',
-        ExpressionAttributeValues: { ':zero': 0, ':one': 1, ':now': now },
-      })
-    );
+    // Re-derive recipe rating aggregates + cookCount from every cook of
+    // this recipe. Best-effort — failure shouldn't fail the user's log.
+    try {
+      await recomputeRecipeAggregatesFromCooks(recipeId);
+    } catch (err) {
+      console.error('cooks-log: aggregate recompute failed', err);
+    }
 
     return created(cook);
   } catch (err) {

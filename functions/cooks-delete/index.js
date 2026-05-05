@@ -3,7 +3,6 @@
 const {
   GetCommand,
   TransactWriteCommand,
-  UpdateCommand,
 } = require('@aws-sdk/lib-dynamodb');
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
@@ -14,6 +13,7 @@ const {
   notFound,
   serverError,
 } = require('../../shared/response');
+const { recomputeRecipeAggregatesFromCooks } = require('../../shared/cook-aggregates');
 
 /**
  * Delete a cook session. Chef-only. Cleans up:
@@ -64,27 +64,12 @@ exports.handler = async (event) => {
     // 25-participant cap so this is well within limits.
     await docClient.send(new TransactWriteCommand({ TransactItems: transactItems }));
 
-    // Best-effort decrement; if recipe was deleted underneath us this throws
-    // and we swallow. cookCount is metadata, not a source of truth.
+    // Recompute the recipe's aggregates from the remaining cooks so
+    // cookCount + every rating axis stay in sync. Best-effort.
     try {
-      await docClient.send(
-        new UpdateCommand({
-          TableName: process.env.RECIPES_TABLE_NAME,
-          Key: { recipeId: cook.recipeId },
-          UpdateExpression: 'SET cookCount = if_not_exists(cookCount, :one) - :one, updatedAt = :now',
-          ConditionExpression: 'attribute_exists(recipeId) AND cookCount > :zero',
-          ExpressionAttributeValues: {
-            ':one': 1,
-            ':zero': 0,
-            ':now': new Date().toISOString(),
-          },
-        })
-      );
-    } catch (decErr) {
-      if (decErr.name !== 'ConditionalCheckFailedException') {
-        console.warn('cooks-delete cookCount decrement failed:', decErr.name, decErr.message);
-      }
-      // Suppress — counter drift is acceptable.
+      await recomputeRecipeAggregatesFromCooks(cook.recipeId);
+    } catch (err) {
+      console.warn('cooks-delete: aggregate recompute failed:', err.name, err.message);
     }
 
     return noContent();
