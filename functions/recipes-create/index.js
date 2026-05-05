@@ -5,18 +5,21 @@ const { v4: uuidv4 } = require('uuid');
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
 const { created, badRequest, serverError } = require('../../shared/response');
-const { normalizeIngredients } = require('../../shared/ingredients');
+const {
+  normalizeIngredients,
+  normalizeInstructions,
+  normalizeProteinTypes,
+  normalizeTags,
+  normalizeDifficulty,
+  normalizeServings,
+  normalizeMacrosScope,
+  normalizeMacros,
+} = require('../../shared/ingredients');
 
 const VALID_PRIVACY = new Set(['public', 'friends', 'private']);
 
 /**
  * Pull the author's handle from the JWT id-token claims (preferred_username).
- * For native users this is the @-handle they picked at sign-up. For federated
- * users without a handle yet it'll be undefined — frontend falls back gracefully.
- *
- * Avatar/displayName aren't in the JWT (they live in xomware-users) — leaving
- * those for a future cross-table read. The handle alone is enough to render
- * "by @handle" + link to /u/view?handle=...
  */
 function authorHandleFromEvent(event) {
   const claims = event?.requestContext?.authorizer?.claims;
@@ -40,20 +43,29 @@ exports.handler = async (event) => {
     const recipe = {
       recipeId: uuidv4(),
       authorUserId: userId,
-      authorHandle, // denormalized — eventual-consistent if user changes handle later
+      authorHandle,
       name: body.name.trim(),
       description: typeof body.description === 'string' ? body.description : '',
       timeMinutes: Number.isFinite(body.timeMinutes) ? body.timeMinutes : 0,
-      difficulty: body.difficulty || 'Easy',
-      proteinSource: body.proteinSource || '',
+      servings: normalizeServings(body.servings ?? 1),
+      // Difficulty: 1..5 integer (replaces legacy string enum but accepts both via normalizer).
+      difficulty: normalizeDifficulty(body.difficulty),
+      // Free-text proteinSource kept for back-compat / search; new structured field is proteinTypes.
+      proteinSource: typeof body.proteinSource === 'string' ? body.proteinSource : '',
+      proteinTypes: normalizeProteinTypes(body.proteinTypes ?? []),
+      tags: normalizeTags(body.tags ?? []),
       ingredients: normalizeIngredients(body.ingredients),
-      instructions: Array.isArray(body.instructions) ? body.instructions : [],
-      macros: body.macros || { calories: 0, protein: 0, carbs: 0, fat: 0 },
+      instructions: normalizeInstructions(body.instructions),
+      macros: normalizeMacros(body.macros),
+      macrosScope: normalizeMacrosScope(body.macrosScope),
       privacy,
       createdAt: now,
       updatedAt: now,
       cookCount: 0,
       avgRating: null,
+      ratingCount: 0,
+      spicinessAvg: null,
+      spicinessCount: 0,
     };
 
     await docClient.send(

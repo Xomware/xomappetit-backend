@@ -12,6 +12,13 @@ const {
 } = require('../../shared/response');
 const {
   normalizeIngredients,
+  normalizeInstructions,
+  normalizeProteinTypes,
+  normalizeTags,
+  normalizeDifficulty,
+  normalizeServings,
+  normalizeMacrosScope,
+  normalizeMacros,
   normalizeRecipe,
 } = require('../../shared/ingredients');
 
@@ -20,10 +27,14 @@ const EDITABLE_FIELDS = new Set([
   'description',
   'timeMinutes',
   'difficulty',
+  'servings',
   'proteinSource',
+  'proteinTypes',
+  'tags',
   'ingredients',
   'instructions',
   'macros',
+  'macrosScope',
   'privacy',
 ]);
 
@@ -48,17 +59,39 @@ exports.handler = async (event) => {
     const updates = {};
     for (const key of Object.keys(body)) {
       if (!EDITABLE_FIELDS.has(key)) continue;
-      if (key === 'ingredients') {
-        updates.ingredients = normalizeIngredients(body.ingredients);
-      } else if (key === 'instructions') {
-        updates.instructions = Array.isArray(body.instructions) ? body.instructions : [];
-      } else if (key === 'privacy') {
-        if (!VALID_PRIVACY.has(body.privacy)) {
-          return badRequest('privacy must be one of public | friends | private');
-        }
-        updates.privacy = body.privacy;
-      } else {
-        updates[key] = body[key];
+      switch (key) {
+        case 'ingredients':
+          updates.ingredients = normalizeIngredients(body.ingredients);
+          break;
+        case 'instructions':
+          updates.instructions = normalizeInstructions(body.instructions);
+          break;
+        case 'proteinTypes':
+          updates.proteinTypes = normalizeProteinTypes(body.proteinTypes);
+          break;
+        case 'tags':
+          updates.tags = normalizeTags(body.tags);
+          break;
+        case 'difficulty':
+          updates.difficulty = normalizeDifficulty(body.difficulty);
+          break;
+        case 'servings':
+          updates.servings = normalizeServings(body.servings);
+          break;
+        case 'macros':
+          updates.macros = normalizeMacros(body.macros);
+          break;
+        case 'macrosScope':
+          updates.macrosScope = normalizeMacrosScope(body.macrosScope);
+          break;
+        case 'privacy':
+          if (!VALID_PRIVACY.has(body.privacy)) {
+            return badRequest('privacy must be one of public | friends | private');
+          }
+          updates.privacy = body.privacy;
+          break;
+        default:
+          updates[key] = body[key];
       }
     }
 
