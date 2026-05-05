@@ -48,8 +48,24 @@ jobs:
             mkdir -p /tmp/bundle
 
             cp -r functions/$fn_dir/* /tmp/bundle/
-            cp -r shared/* /tmp/bundle/
+            # Preserve shared/ as a real directory (don't flatten) so
+            # files inside shared/ keep resolving each other relatively.
+            mkdir -p /tmp/bundle/shared
+            cp -r shared/* /tmp/bundle/shared/
             cp package.json /tmp/bundle/
+
+            # The handler's requires use the source-tree path
+            # ('../../shared/dynamo') but inside the zip the handler sits at
+            # the root, so rewrite them to './shared/...'. Source files
+            # untouched — this is a bundle-time transform. Both quote styles
+            # are covered.
+            sed -i "s|'../../shared/|'./shared/|g; s|\"../../shared/|\"./shared/|g" /tmp/bundle/index.js
+            # Fail loudly if any '../../shared' references slip through.
+            if grep -q "\.\./\.\./shared" /tmp/bundle/index.js; then
+              echo "❌ shared-path rewrite missed something in $fn_name"
+              grep -n "\.\./\.\./shared" /tmp/bundle/index.js
+              exit 1
+            fi
 
             cd /tmp/bundle
             npm install --omit=dev --ignore-scripts
