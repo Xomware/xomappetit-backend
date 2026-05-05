@@ -212,3 +212,17 @@
 /Users/dom/Code/meals-frontend/src/components/RecipeCard.tsx
 /Users/dom/Code/meals-frontend/src/components/Header.tsx
 /Users/dom/Code/meals-frontend/src/components/Header.tsx
+/Users/dom/Code/meals-infrastructure/terraform/dynamodb_likes.tf
+/Users/dom/Code/meals-infrastructure/terraform/locals.tf
+/Users/dom/Code/meals-infrastructure/terraform/lambdas_recipes_cooks.tf
+/Users/dom/Code/meals-backend/shared/friendships.js
+/Users/dom/Code/meals-backend/functions/recipes-like/index.js
+/Users/dom/Code/meals-backend/functions/recipes-get/index.js
+/Users/dom/Code/meals-backend/functions/recipes-list/index.js
+/Users/dom/Code/meals-frontend/src/types.ts
+/Users/dom/Code/meals-frontend/src/lib/api.ts
+/Users/dom/Code/meals-frontend/src/components/LikeButton.tsx
+/Users/dom/Code/meals-frontend/src/components/RecipeCard.tsx
+/Users/dom/Code/meals-frontend/src/components/RecipeCard.tsx
+/Users/dom/Code/meals-frontend/src/app/recipes/view/page.tsx
+/Users/dom/Code/meals-frontend/src/app/recipes/view/page.tsx

@@ -3,6 +3,7 @@
 const { GetCommand } = require('@aws-sdk/lib-dynamodb');
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
+const { isFriend } = require('../../shared/friendships');
 const {
   ok,
   badRequest,
@@ -13,12 +14,16 @@ const {
 const { normalizeRecipe } = require('../../shared/ingredients');
 
 /**
- * Get a single recipe with v1 privacy enforcement:
+ * Get a single recipe.
  *
- *   - public:  any authenticated caller
- *   - private: author only
- *   - friends: TODO (no friends table yet) — stub treats non-author as 403.
- *              Real check ships post-friends-feature.
+ * Privacy:
+ *   - public  → any authenticated caller
+ *   - friends → author + accepted friends
+ *   - private → author only
+ *
+ * Augments the returned row with `likedByMe: boolean` (single GetItem on
+ * recipe-likes). `likeCount` lives on the recipe row itself, denormalized
+ * by recipes-like.
  */
 exports.handler = async (event) => {
   try {
@@ -33,22 +38,29 @@ exports.handler = async (event) => {
         Key: { recipeId },
       })
     );
-
     if (!Item) return notFound('Recipe not found');
 
     const isAuthor = Item.authorUserId === userId;
     if (Item.privacy === 'private' && !isAuthor) {
       return forbidden('Recipe is private');
     }
-    // TODO(post-friends): replace this stub with a real friendship check
-    // (xomware-users/friends table). For v1 we treat all non-author requests
-    // on `friends`-privacy recipes as forbidden so the surface is locked-down
-    // by default.
     if (Item.privacy === 'friends' && !isAuthor) {
-      return forbidden('Friends-only recipe (privacy stub: real check pending friends feature)');
+      const allowed = await isFriend(userId, Item.authorUserId);
+      if (!allowed) return forbidden('Friends-only recipe');
     }
 
-    return ok(normalizeRecipe(Item));
+    // likedByMe — single GetItem.
+    const { Item: likeRow } = await docClient.send(
+      new GetCommand({
+        TableName: process.env.RECIPE_LIKES_TABLE_NAME,
+        Key: { recipeId, userId },
+      })
+    );
+
+    return ok({
+      ...normalizeRecipe(Item),
+      likedByMe: !!likeRow,
+    });
   } catch (err) {
     console.error('recipes-get error:', err);
     return serverError(err.message);
