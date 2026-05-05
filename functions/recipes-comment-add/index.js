@@ -4,6 +4,7 @@ const { GetCommand, PutCommand } = require('@aws-sdk/lib-dynamodb');
 const { v4: uuidv4 } = require('uuid');
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
+const { notify } = require('../../shared/notifications');
 const {
   created,
   badRequest,
@@ -60,6 +61,15 @@ exports.handler = async (event) => {
         Item: comment,
       })
     );
+
+    await notify({
+      userId: recipe.authorUserId,
+      type: 'comment_added',
+      actorUserId: userId,
+      refType: 'recipe',
+      refId: recipeId,
+      meta: { recipeName: recipe.name },
+    });
 
     return created(comment);
   } catch (err) {
