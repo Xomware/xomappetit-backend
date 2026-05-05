@@ -56,6 +56,14 @@ jobs:
             zip -r /tmp/${fn_name}.zip . -x '*.git*' >/dev/null
             cd -
 
+            # Skip cleanly when the lambda doesn't exist yet — happens right
+            # after shipping a new function while the infra terraform apply
+            # is still running. The next workflow run picks it up.
+            if ! aws lambda get-function --function-name "$lambda_name" --no-cli-pager >/dev/null 2>&1; then
+              echo "⚠ $lambda_name does not exist yet (infra not applied?) — skipping"
+              continue
+            fi
+
             echo "=== Updating $lambda_name ==="
             aws lambda update-function-code \
               --function-name "$lambda_name" \
