@@ -9,6 +9,21 @@ const { normalizeIngredients } = require('../../shared/ingredients');
 
 const VALID_PRIVACY = new Set(['public', 'friends', 'private']);
 
+/**
+ * Pull the author's handle from the JWT id-token claims (preferred_username).
+ * For native users this is the @-handle they picked at sign-up. For federated
+ * users without a handle yet it'll be undefined — frontend falls back gracefully.
+ *
+ * Avatar/displayName aren't in the JWT (they live in xomware-users) — leaving
+ * those for a future cross-table read. The handle alone is enough to render
+ * "by @handle" + link to /u/view?handle=...
+ */
+function authorHandleFromEvent(event) {
+  const claims = event?.requestContext?.authorizer?.claims;
+  const v = claims?.['preferred_username'];
+  return typeof v === 'string' && v.trim() ? v.trim().toLowerCase() : null;
+}
+
 exports.handler = async (event) => {
   try {
     const userId = getUserId(event);
@@ -20,10 +35,12 @@ exports.handler = async (event) => {
 
     const privacy = VALID_PRIVACY.has(body.privacy) ? body.privacy : 'public';
     const now = new Date().toISOString();
+    const authorHandle = authorHandleFromEvent(event);
 
     const recipe = {
       recipeId: uuidv4(),
       authorUserId: userId,
+      authorHandle, // denormalized — eventual-consistent if user changes handle later
       name: body.name.trim(),
       description: typeof body.description === 'string' ? body.description : '',
       timeMinutes: Number.isFinite(body.timeMinutes) ? body.timeMinutes : 0,
