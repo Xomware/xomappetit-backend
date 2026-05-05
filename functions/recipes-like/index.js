@@ -9,6 +9,7 @@ const {
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
 const { isFriend } = require('../../shared/friendships');
+const { notify } = require('../../shared/notifications');
 const {
   ok,
   badRequest,
@@ -100,6 +101,17 @@ exports.handler = async (event) => {
         ReturnValues: 'ALL_NEW',
       })
     );
+
+    if (likedByMe) {
+      await notify({
+        userId: recipe.authorUserId,
+        type: 'recipe_liked',
+        actorUserId: userId,
+        refType: 'recipe',
+        refId: recipeId,
+        meta: { recipeName: recipe.name },
+      });
+    }
 
     return ok({
       recipeId,

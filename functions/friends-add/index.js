@@ -7,6 +7,7 @@ const {
 } = require('@aws-sdk/lib-dynamodb');
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
+const { notify } = require('../../shared/notifications');
 const {
   ok,
   badRequest,
@@ -101,6 +102,14 @@ exports.handler = async (event) => {
           ],
         })
       );
+      // Mutual: tell the original requester that we accepted.
+      await notify({
+        userId: friendUserId,
+        type: 'friend_accept',
+        actorUserId: userId,
+        refType: 'friend',
+        refId: userId,
+      });
       return ok({ status: 'accepted', mutualRequest: true });
     }
 
@@ -116,6 +125,14 @@ exports.handler = async (event) => {
         },
       })
     );
+
+    await notify({
+      userId: friendUserId,
+      type: 'friend_request',
+      actorUserId: userId,
+      refType: 'friend',
+      refId: userId,
+    });
 
     return ok({ status: 'pending' });
   } catch (err) {
