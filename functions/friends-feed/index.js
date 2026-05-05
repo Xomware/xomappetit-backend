@@ -3,6 +3,7 @@
 const { BatchGetCommand, QueryCommand } = require('@aws-sdk/lib-dynamodb');
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
+const { blockedIdsOf } = require('../../shared/blocks');
 const { ok, serverError } = require('../../shared/response');
 const { normalizeRecipe } = require('../../shared/ingredients');
 
@@ -38,17 +39,23 @@ exports.handler = async (event) => {
     const body = JSON.parse(event.body || '{}');
     const limit = Math.min(Math.max(Number(body.limit) || DEFAULT_LIMIT, 1), MAX_LIMIT);
 
-    // 1. Friends.
-    const { Items: friendRows = [] } = await docClient.send(
-      new QueryCommand({
-        TableName: process.env.FRIENDSHIPS_TABLE_NAME,
-        KeyConditionExpression: 'userId = :uid',
-        FilterExpression: '#st = :ok',
-        ExpressionAttributeNames: { '#st': 'status' },
-        ExpressionAttributeValues: { ':uid': userId, ':ok': 'accepted' },
-      })
-    );
-    const friendIds = friendRows.map((r) => r.friendUserId);
+    // 1. Friends + blocks (parallel).
+    const [{ Items: friendRows = [] }, blocked] = await Promise.all([
+      docClient.send(
+        new QueryCommand({
+          TableName: process.env.FRIENDSHIPS_TABLE_NAME,
+          KeyConditionExpression: 'userId = :uid',
+          FilterExpression: '#st = :ok',
+          ExpressionAttributeNames: { '#st': 'status' },
+          ExpressionAttributeValues: { ':uid': userId, ':ok': 'accepted' },
+        })
+      ),
+      blockedIdsOf(userId),
+    ]);
+    // Friends list shouldn't include anyone you've since blocked.
+    const friendIds = friendRows
+      .map((r) => r.friendUserId)
+      .filter((id) => !blocked.has(id));
     const authorIds = [userId, ...friendIds];
 
     // 2. In parallel: recipes by each author + cook-participants for each user.

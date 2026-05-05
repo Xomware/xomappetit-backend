@@ -2,6 +2,8 @@
 
 const { ScanCommand } = require('@aws-sdk/lib-dynamodb');
 const { docClient } = require('../../shared/dynamo');
+const { getUserId } = require('../../shared/auth');
+const { blockedIdsOf } = require('../../shared/blocks');
 const { ok, serverError } = require('../../shared/response');
 const { normalizeRecipe } = require('../../shared/ingredients');
 
@@ -24,26 +26,31 @@ const MAX_LIMIT = 100;
  */
 exports.handler = async (event) => {
   try {
+    const callerId = getUserId(event);
     const body = JSON.parse(event.body || '{}');
     const limit = Math.min(Math.max(Number(body.limit) || DEFAULT_LIMIT, 1), MAX_LIMIT);
     const cursor = typeof body.cursor === 'string' && body.cursor
       ? JSON.parse(Buffer.from(body.cursor, 'base64').toString('utf8'))
       : undefined;
 
-    const { Items = [], LastEvaluatedKey } = await docClient.send(
-      new ScanCommand({
-        TableName: process.env.RECIPES_TABLE_NAME,
-        FilterExpression: 'privacy = :pub',
-        ExpressionAttributeValues: { ':pub': 'public' },
-        ExclusiveStartKey: cursor,
-        // Over-fetch a bit so the post-filter result is closer to `limit`;
-        // capped to avoid runaway pages.
-        Limit: Math.min(limit * 4, 500),
-      })
-    );
+    const [{ Items = [], LastEvaluatedKey }, blocked] = await Promise.all([
+      docClient.send(
+        new ScanCommand({
+          TableName: process.env.RECIPES_TABLE_NAME,
+          FilterExpression: 'privacy = :pub',
+          ExpressionAttributeValues: { ':pub': 'public' },
+          ExclusiveStartKey: cursor,
+          // Over-fetch a bit so the post-filter result is closer to `limit`;
+          // capped to avoid runaway pages.
+          Limit: Math.min(limit * 4, 500),
+        })
+      ),
+      blockedIdsOf(callerId),
+    ]);
 
-    Items.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-    const trimmed = Items.slice(0, limit);
+    const visible = Items.filter((r) => !blocked.has(r.authorUserId));
+    visible.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    const trimmed = visible.slice(0, limit);
 
     const nextCursor = LastEvaluatedKey
       ? Buffer.from(JSON.stringify(LastEvaluatedKey)).toString('base64')
