@@ -10,8 +10,10 @@ The data model has two core entities:
 - **Recipe** — the durable definition of a dish (ingredients, steps, macros, privacy).
 - **Cook** — one logged instance of *making* a recipe, with its own per-axis
   ratings and a chef/diner participant list. Recipe rating aggregates are
-  **re-derived from cooks** (see `shared/cook-aggregates.js`), so "what people
-  who actually cooked it thought" is the source of truth on a recipe card.
+  **re-derived from both cooks and direct ratings** (see
+  `shared/cook-aggregates.js`) — every cook's rating plus any direct
+  `/recipes/rate` rating is pooled into the recipe card's averages. A single
+  recompute owns those columns, so the two rating paths never clobber.
 
 Everything else (likes, comments, friendships, blocks, notifications, reports)
 hangs off those two. User identity/profiles live in the shared **xomware-users**
@@ -88,9 +90,10 @@ One row per (user, cook) — the join that answers "what has this user cooked?".
 ## Social engagement
 
 ### `recipe-ratings`
-Direct per-user rating of a recipe (distinct from cook-derived aggregates).
-PK `recipeId`, SK `userId`. Attrs: `rating`, `spiciness`, `sweetness`,
-`saltiness`, `richness` (each 1–5), `ratedAt`.
+Direct per-user rating of a recipe (one upserted row per user). PK `recipeId`,
+SK `userId`. Attrs: `rating`, `spiciness`, `sweetness`, `saltiness`, `richness`
+(each 1–5), `updatedAt`. These rows are **pooled with cook ratings** by
+`recomputeRecipeAggregates` into the recipe's aggregate columns.
 
 ### `recipe-likes`
 PK `recipeId`, SK `userId`. Attrs: `createdAt`. Like is a toggle; `likeCount`
