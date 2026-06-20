@@ -9,6 +9,7 @@ const {
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
 const { isFriend } = require('../../shared/friendships');
+const { blockExistsBetween } = require('../../shared/blocks');
 const { notify } = require('../../shared/notifications');
 const {
   ok,
@@ -45,6 +46,10 @@ exports.handler = async (event) => {
     );
     if (!recipe) return notFound('Recipe not found');
     const isAuthor = recipe.authorUserId === userId;
+    // No interacting across a block (either direction).
+    if (!isAuthor && (await blockExistsBetween(userId, recipe.authorUserId))) {
+      return forbidden('Recipe not available');
+    }
     if (recipe.privacy === 'private' && !isAuthor) {
       return forbidden('Recipe is private');
     }

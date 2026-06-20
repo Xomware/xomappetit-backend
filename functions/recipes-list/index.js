@@ -4,6 +4,7 @@ const { QueryCommand } = require('@aws-sdk/lib-dynamodb');
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
 const { isFriend } = require('../../shared/friendships');
+const { blockExistsBetween } = require('../../shared/blocks');
 const { ok, serverError } = require('../../shared/response');
 const { normalizeRecipe } = require('../../shared/ingredients');
 
@@ -25,6 +26,11 @@ exports.handler = async (event) => {
       ? body.authorUserId
       : callerId;
     const isSelf = targetId === callerId;
+
+    // Don't enumerate a user's recipes across a block (either direction).
+    if (!isSelf && (await blockExistsBetween(callerId, targetId))) {
+      return ok([]);
+    }
 
     const { Items = [] } = await docClient.send(
       new QueryCommand({
