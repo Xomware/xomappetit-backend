@@ -3,7 +3,7 @@
 const { GetCommand, PutCommand } = require('@aws-sdk/lib-dynamodb');
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
-const { isFriendsWith } = require('../../shared/friendships');
+const { isFriend } = require('../../shared/friendships');
 const { recomputeRecipeAggregates } = require('../../shared/cook-aggregates');
 const {
   ok,
@@ -73,7 +73,7 @@ exports.handler = async (event) => {
     const isAuthor = recipe.authorUserId === userId;
     if (recipe.privacy === 'private' && !isAuthor) return forbidden('Recipe is private');
     if (recipe.privacy === 'friends' && !isAuthor) {
-      const friends = await isFriendsWith(userId, recipe.authorUserId).catch(() => false);
+      const friends = await isFriend(userId, recipe.authorUserId).catch(() => false);
       if (!friends) return forbidden('Friends-only recipe');
     }
 

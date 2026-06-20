@@ -4,6 +4,7 @@ const { GetCommand, PutCommand } = require('@aws-sdk/lib-dynamodb');
 const { v4: uuidv4 } = require('uuid');
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
+const { isFriend } = require('../../shared/friendships');
 const { notify } = require('../../shared/notifications');
 const {
   created,
@@ -44,7 +45,8 @@ exports.handler = async (event) => {
     const isAuthor = recipe.authorUserId === userId;
     if (recipe.privacy === 'private' && !isAuthor) return forbidden('Recipe is private');
     if (recipe.privacy === 'friends' && !isAuthor) {
-      return forbidden('Friends-only recipe (privacy stub: real check pending friends feature)');
+      const friends = await isFriend(userId, recipe.authorUserId);
+      if (!friends) return forbidden('Friends-only recipe');
     }
 
     const comment = {

@@ -3,6 +3,7 @@
 const { GetCommand } = require('@aws-sdk/lib-dynamodb');
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
+const { isFriend } = require('../../shared/friendships');
 const {
   ok,
   badRequest,
@@ -16,7 +17,8 @@ const {
  * can see, plus the recipe author. For non-private recipes, anyone
  * authenticated can view (matches how recipe pages aggregate cook counts).
  *
- * Friends-only recipes are stubbed to author/participants only.
+ * Friends-only recipes are visible to the author, participants, and the
+ * author's accepted friends.
  */
 exports.handler = async (event) => {
   try {
@@ -49,7 +51,8 @@ exports.handler = async (event) => {
       return forbidden('Cook on a private recipe');
     }
     if (recipePrivacy === 'friends' && !isParticipant && !isRecipeAuthor) {
-      return forbidden('Cook on a friends-only recipe (privacy stub: real check pending friends feature)');
+      const friends = await isFriend(userId, recipe.authorUserId);
+      if (!friends) return forbidden('Cook on a friends-only recipe');
     }
 
     return ok(cook);
