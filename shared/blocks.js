@@ -1,6 +1,6 @@
 'use strict';
 
-const { QueryCommand } = require('@aws-sdk/lib-dynamodb');
+const { GetCommand, QueryCommand } = require('@aws-sdk/lib-dynamodb');
 const { docClient } = require('./dynamo');
 
 /**
@@ -23,4 +23,20 @@ async function blockedIdsOf(callerId) {
   return new Set(Items.map((r) => r.blockedUserId));
 }
 
-module.exports = { blockedIdsOf };
+/**
+ * True if either user has blocked the other. Used to gate direct
+ * interactions (like, rate, comment, friend request) where a feed-style
+ * "filter the list" approach doesn't apply — interaction across a block
+ * should be refused in BOTH directions.
+ */
+async function blockExistsBetween(a, b) {
+  if (!a || !b || a === b || !process.env.BLOCKS_TABLE_NAME) return false;
+  const T = process.env.BLOCKS_TABLE_NAME;
+  const [{ Item: aBlockedB }, { Item: bBlockedA }] = await Promise.all([
+    docClient.send(new GetCommand({ TableName: T, Key: { userId: a, blockedUserId: b } })),
+    docClient.send(new GetCommand({ TableName: T, Key: { userId: b, blockedUserId: a } })),
+  ]);
+  return Boolean(aBlockedB || bBlockedA);
+}
+
+module.exports = { blockedIdsOf, blockExistsBetween };
