@@ -49,8 +49,12 @@ exports.handler = async (event) => {
         Key: { recipeId: cook.recipeId },
       })
     );
-    const recipePrivacy = recipe?.privacy || 'public';
-    const isAuthor = recipe?.authorUserId === userId;
+    // Recipe gone (deletes don't cascade to cooks). Don't fall back to
+    // "public" — that would let anyone comment on a deleted private recipe's cook.
+    if (!recipe) return notFound('Recipe not found');
+
+    const recipePrivacy = recipe.privacy || 'public';
+    const isAuthor = recipe.authorUserId === userId;
 
     if (recipePrivacy === 'private' && !isAuthor) {
       return forbidden('Cook on a private recipe');

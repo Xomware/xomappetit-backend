@@ -41,9 +41,16 @@ exports.handler = async (event) => {
     }
 
     const TABLE = process.env.FRIENDSHIPS_TABLE_NAME;
+    const BLOCKS = process.env.BLOCKS_TABLE_NAME;
 
-    // Check existing rows in both directions.
-    const [{ Item: forward }, { Item: reverse }] = await Promise.all([
+    // Check existing friendship rows in both directions + block rows in both
+    // directions, all in parallel.
+    const [
+      { Item: forward },
+      { Item: reverse },
+      { Item: theyBlockedMe },
+      { Item: iBlockedThem },
+    ] = await Promise.all([
       docClient.send(
         new GetCommand({
           TableName: TABLE,
@@ -56,12 +63,31 @@ exports.handler = async (event) => {
           Key: { userId: friendUserId, friendUserId: userId },
         })
       ),
+      docClient.send(
+        new GetCommand({
+          TableName: BLOCKS,
+          Key: { userId: friendUserId, blockedUserId: userId },
+        })
+      ),
+      docClient.send(
+        new GetCommand({
+          TableName: BLOCKS,
+          Key: { userId, blockedUserId: friendUserId },
+        })
+      ),
     ]);
+
+    // Can't befriend across a block in either direction. Use a generic
+    // message for "they blocked me" so it doesn't reveal the block.
+    if (theyBlockedMe) return forbidden('Cannot send a friend request to this user');
+    if (iBlockedThem) return badRequest('Unblock this user before sending a friend request');
 
     const now = new Date().toISOString();
 
-    // Already friends.
-    if (forward?.status === 'accepted' && reverse?.status === 'accepted') {
+    // Already friends — either accepted row is enough. (Guarding on a single
+    // accepted row prevents a half-present friendship from being silently
+    // downgraded to pending by the plain-Put path below.)
+    if (forward?.status === 'accepted' || reverse?.status === 'accepted') {
       return ok({ status: 'accepted', alreadyFriends: true });
     }
 
