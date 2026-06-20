@@ -1,239 +1,158 @@
 # Xom Appétit — Backend API
 
-Serverless backend for **Xom Appétit**, a meal-tracking app. Built with AWS Lambda, API Gateway, and DynamoDB.
+Serverless backend for **Xom Appétit**, a social home-cooking tracker — recipes,
+logged cook sessions, multi-axis ratings, friends, a social feed, and AI recipe
+import. Built with AWS Lambda, API Gateway, and DynamoDB.
 
 ## Architecture
 
 - **Runtime:** Node.js 20.x (CommonJS)
-- **Database:** DynamoDB (`xomappetit-meals`, `xomappetit-meal-ratings`, `xomappetit-meal-comments`)
-- **Auth:** Cognito-issued JWT in `Authorization: Bearer <token>` header, validated by API Gateway's built-in `COGNITO_USER_POOLS` authorizer against the shared **xomware-users** Cognito pool
-- **API host:** `api.xomappetit.xomware.com`
-- **Infrastructure:** Defined in [`xomappetit-infrastructure`](https://github.com/Xomware/xomappetit-infrastructure)
+- **Database:** DynamoDB — 11 tables prefixed `xomappetit-` (see [SCHEMA.md](./SCHEMA.md))
+- **Auth:** Cognito-issued JWT in `Authorization: Bearer <token>`, validated by
+  API Gateway's `COGNITO_USER_POOLS` authorizer against the shared
+  **xomware-users** pool. Every route requires auth.
+- **AI:** Anthropic API (Claude) for recipe extraction from text/URL, plus a
+  static nutrition table for macro estimation (no LLM needed for macros).
+- **API host:** `https://api.xomappetit.xomware.com`
+- **Frontend:** [`xomappetit-frontend`](https://github.com/Xomware/meals-frontend) (Next.js, S3 + CloudFront at `xomappetit.xomware.com`)
+- **Infrastructure:** [`xomappetit-infrastructure`](https://github.com/Xomware/meals-infrastructure) (Terraform)
 
 ## API style
 
-Flat verb-style routes under the `/meals` service prefix. Resource IDs travel in the **request body**, not the path. This matches the convention used by other Xomware apps (xomify, xomper, etc.) and the shared `api-gateway-service` Terraform module.
+Flat verb-style routes under a service prefix (`/recipes/*`, `/cooks/*`,
+`/friends/*`, `/notifications/*`, `/blocks/*`, `/reports/*`). **All routes are
+`POST`** and resource IDs travel in the **request body**, not the path. This
+matches the shared `api-gateway-service` Terraform module used across Xomware apps.
 
-## Project Structure
+User identity is never sent in bodies — the caller is always the JWT `sub`.
+Profiles/handles are resolved separately via the shared xomware-users service;
+these functions store only `userId`s.
 
-```
-functions/
-  meals-list/index.js              # GET    /meals/list
-  meals-create/index.js            # POST   /meals/create
-  meals-get/index.js               # POST   /meals/get          (id in body)
-  meals-edit/index.js              # POST   /meals/edit         (id + fields in body)
-  meals-update/index.js            # POST   /meals/update       (toggle-cooked; id in body)
-  meals-delete/index.js            # POST   /meals/delete       (id in body)
-  meals-rate/index.js              # POST   /meals/rate         (id + rating in body)
-  meals-ratings/index.js           # POST   /meals/ratings      (id in body)
-  meals-comment-add/index.js       # POST   /meals/comment-add
-  meals-comments-list/index.js     # POST   /meals/comments-list
-  meals-comment-delete/index.js    # POST   /meals/comment-delete
-shared/
-  auth.js                          # Extract userId (Cognito sub) + groups from JWT claims
-  dynamo.js                        # DynamoDB DocumentClient singleton
-  ingredients.js                   # Ingredient + meal normalization helpers
-  response.js                      # Standardized CORS response helpers
-```
-
-## API Reference
-
-All endpoints require a Cognito-issued JWT in the `Authorization: Bearer <token>` header. Bodies are JSON.
-
-### List meals
+## Project structure
 
 ```
-GET /meals/list
+functions/                 # one dir per Lambda → one POST route
+  recipes-*/index.js       # /recipes/* (create, get, list, list-public, search,
+                           #   edit, delete, rate, like, comment-*, import-*, compute-macros)
+  cooks-*/index.js         # /cooks/*   (log, get, list, edit, delete, comment-*)
+  friends-*/index.js       # /friends/* (add, respond, remove, list, feed)
+  notifications-*/index.js # /notifications/* (list, mark-read)
+  blocks-*/index.js        # /blocks/*  (add, remove, list)
+  reports-add/index.js     # /reports/add
+shared/                    # shared helpers (pure logic + DynamoDB I/O)
+  auth.js                  # getUserId / getGroups / isAdmin from JWT claims
+  dynamo.js                # DynamoDB DocumentClient singleton
+  response.js              # CORS response helpers (ok/created/badRequest/...)
+  ingredients.js           # ingredient/recipe normalizers + enums (TAGS, UNITS, ...)
+  nutrition.js             # static nutrition table + unit→grams conversion
+  macros-calc.js           # computeMacros from ingredients
+  protein-detect.js        # infer proteinTypes from ingredient names
+  cook-aggregates.js       # re-derive recipe rating aggregates from cooks
+  recipe-draft.js          # LLM draft schema + sanitization (imports)
+  recipe-jsonld.js         # schema.org/Recipe extraction from HTML (URL import)
+  anthropic.js             # Claude API client
+  blocks.js / friendships.js / notifications.js  # graph + messaging helpers
+scripts/
+  seed-starter-library.js  # seed a starter recipe library into the live tables
+test/                      # node:test unit tests for the shared modules
 ```
 
-Returns all meals for the authenticated user.
+## API reference
 
-**Response:** `200 OK`
-```json
-[
-  {
-    "userId": "abc123",
-    "mealId": "uuid",
-    "id": "uuid",
-    "name": "Chicken Stir Fry",
-    "timeMinutes": 25,
-    "difficulty": "Easy",
-    "proteinSource": "Chicken",
-    "ingredients": [
-      { "name": "chicken breast", "quantity": 1, "unit": "lb" },
-      { "name": "broccoli", "quantity": 2, "unit": "cups" },
-      { "name": "soy sauce", "quantity": 3, "unit": "tbsp" }
-    ],
-    "instructions": [
-      "Heat oil in a wok over high heat",
-      "Add chicken, stir-fry until cooked through",
-      "Add broccoli and soy sauce, toss to combine"
-    ],
-    "macros": { "calories": 450, "protein": 40, "carbs": 20, "fat": 15 },
-    "cooked": false,
-    "createdAt": "2026-03-01T12:00:00.000Z"
-  }
-]
-```
+All endpoints: `POST`, JSON body, `Authorization: Bearer <jwt>` required.
+IDs accept either `id` or the resource-specific key (e.g. `recipeId`).
 
-> Legacy meals stored `ingredients` as `List<String>`. They're auto-normalized on read into `{ name, quantity: null, unit: null }`. New writes always use the structured shape.
+### Recipes — `/recipes/*`
+| Route | Purpose | Key body fields | Success |
+|-------|---------|-----------------|---------|
+| `/create` | Create a recipe | `name`* , `ingredients`, `instructions`, `privacy` (`public`\|`friends`\|`private`, default `public`), `tags`, `servings`, `difficulty`, `macros`, `macrosScope` | `201` recipe |
+| `/get` | Fetch one recipe (+`likedByMe`) | `recipeId`* | `200` recipe |
+| `/list` | List a user's recipes (privacy-filtered) | `authorUserId` (default = caller) | `200` recipe[] |
+| `/list-public` | Public feed, newest-first, paginated | `limit`, `cursor`, `tags` (ALL), `proteinTypes` (ANY), `maxTimeMinutes` | `200` `{items, nextCursor}` |
+| `/search` | Search public recipes by name/protein | `q`* (≥2 chars), `limit` | `200` `{items}` |
+| `/edit` | Update a recipe (author only) | `recipeId`* + editable fields | `200` recipe |
+| `/delete` | Delete a recipe (author only) | `recipeId`* | `204` |
+| `/rate` | Per-user rating on 5 axes | `recipeId`* + any of `rating`/`spiciness`/`sweetness`/`saltiness`/`richness` (1–5) | `200` ratings + aggregates |
+| `/like` | Toggle like | `recipeId`* | `200` `{likeCount, likedByMe}` |
+| `/comment-add` | Comment on a recipe | `recipeId`*, `text`* (≤2000) | `201` comment |
+| `/comments-list` | List comments (oldest-first) | `recipeId`* | `200` comment[] |
+| `/comment-delete` | Delete comment (author or recipe author) | `recipeId`*, `commentId`* | `204` |
+| `/import-url` | Extract a draft from a recipe URL | `url`* | `200` `{draft, source}` |
+| `/import-text` | Extract a draft from pasted text | `text`* (≥30 chars) | `200` `{draft, source}` |
+| `/compute-macros` | Macro calculator (no save) | `ingredients`*, `servings`, `macrosScope` | `200` `{macros, coverage}` |
 
-### Create meal
+Privacy gate (`get`/`like`/`rate`/`comment*`): `public` = any caller, `friends`
+= author + accepted friends, `private` = author only → `403` otherwise.
+Import endpoints try schema.org JSON-LD first, then fall back to Claude.
 
-```
-POST /meals/create
-```
+### Cooks — `/cooks/*`
+| Route | Purpose | Key body fields | Success |
+|-------|---------|-----------------|---------|
+| `/log` | Log a cook session | `recipeId`*, `chefs`, `diners`, `notes`, `photoUrl`, axes (1–5), `cookedAt` | `201` cook |
+| `/get` | Fetch one cook | `cookId`* | `200` cook |
+| `/list` | List cooks (`scope: 'mine'`\|`'recipe'`) | `scope`, `recipeId` (if recipe) | `200` cook[] |
+| `/edit` | Edit a cook (chef only) | `cookId`* + `notes`/`photoUrl`/axes | `200` cook |
+| `/delete` | Delete a cook (chef only) | `cookId`* | `204` |
+| `/comment-add` | Comment on a cook | `cookId`*, `text`* (≤2000) | `201` comment |
+| `/comments-list` | List cook comments | `cookId`* | `200` comment[] |
+| `/comment-delete` | Delete cook comment (author or chef) | `cookId`*, `commentId`* | `204` |
 
-**Body:**
-```json
-{
-  "name": "Chicken Stir Fry",
-  "timeMinutes": 25,
-  "difficulty": "Easy",
-  "proteinSource": "Chicken",
-  "ingredients": [
-    { "name": "chicken breast", "quantity": 1, "unit": "lb" }
-  ],
-  "instructions": ["Heat oil in a wok", "Add chicken"],
-  "macros": { "calories": 450, "protein": 40, "carbs": 20, "fat": 15 }
-}
-```
+Logging a cook writes the cook row + a `cook-participants` row per chef/diner,
+then **recomputes the recipe's rating aggregates and `cookCount` from all its
+cooks** (`shared/cook-aggregates.js`).
 
-**Response:** `201 Created` — returns the created meal object.
+### Friends — `/friends/*`
+| Route | Purpose | Key body fields | Success |
+|-------|---------|-----------------|---------|
+| `/add` | Send / auto-accept request | `friendUserId`* | `200` `{status}` |
+| `/respond` | Accept/decline incoming | `friendUserId`*, `action` (`accept`\|`decline`) | `200` `{status}` |
+| `/remove` | Cancel request / unfriend (idempotent) | `friendUserId`* | `200` `{status:'removed'}` |
+| `/list` | Friends + incoming/outgoing pending | — | `200` `{friends, incomingPending, outgoingPending}` |
+| `/feed` | Mixed recipe+cook activity feed | `limit` | `200` `{items, friendCount}` |
 
-### Get meal
+If both sides request each other, `/add` auto-accepts (mutual). The feed
+interleaves friends' recipes and chef-cooks newest-first, privacy- and block-filtered.
 
-```
-POST /meals/get
-```
+### Notifications · Blocks · Reports
+| Route | Purpose | Key body fields | Success |
+|-------|---------|-----------------|---------|
+| `/notifications/list` | List notifications (newest-first) | `limit`, `cursor` | `200` `{items, nextCursor, unreadInPage}` |
+| `/notifications/mark-read` | Mark one / all read | `sortKey` or `all: true` | `200` `{updated}` |
+| `/blocks/add` | Block a user (tears down friendship) | `blockedUserId`* | `200` `{status:'blocked'}` |
+| `/blocks/remove` | Unblock | `blockedUserId`* | `200` `{status:'unblocked'}` |
+| `/blocks/list` | List blocked users | — | `200` `{blocked}` |
+| `/reports/add` | Report content (write-only, 90-day TTL) | `refType` (`user`\|`recipe`\|`cook`\|`comment`), `refId`*, `reason` (≤500) | `200` `{status:'received'}` |
 
-**Body:** `{ "id": "<mealId>" }`
-
-**Response:** `200 OK` — returns the meal object.
-
-### Edit meal
-
-```
-POST /meals/edit
-```
-
-General field update for an existing meal. Editable fields: `name`, `timeMinutes`, `difficulty`, `proteinSource`, `ingredients`, `instructions`, `macros`. Other fields are ignored.
-
-**Body:** `{ "id": "<mealId>", ...editable fields }`
-
-**Response:** `200 OK` — returns the updated meal object.
-
-### Toggle cooked
-
-```
-POST /meals/update
-```
-
-Toggles the `cooked` boolean.
-
-**Body:** `{ "id": "<mealId>" }`
-
-**Response:** `200 OK` — returns the updated meal object.
-
-### Rate meal
-
-```
-POST /meals/rate
-```
-
-**Body:**
-```json
-{
-  "id": "<mealId>",
-  "taste": 4,
-  "ease": 5,
-  "speed": 3,
-  "healthiness": 4,
-  "notes": "Great weeknight meal"
-}
-```
-
-Rating values are 1-5. Saves to both the meal record (embedded) and the ratings table.
-
-**Response:** `200 OK` — returns the updated meal object.
-
-### Delete meal
-
-```
-POST /meals/delete
-```
-
-**Body:** `{ "id": "<mealId>" }`
-
-**Response:** `204 No Content`
-
-### Get ratings
-
-```
-POST /meals/ratings
-```
-
-**Body:** `{ "id": "<mealId>" }`
-
-**Response:** `200 OK` — array of rating records for the meal.
-
-### List comments
-
-```
-POST /meals/comments-list
-```
-
-**Body:** `{ "mealId": "<mealId>" }`
-
-**Response:** `200 OK` — array of comments sorted oldest → newest.
-
-```json
-[
-  {
-    "mealId": "uuid",
-    "commentId": "uuid",
-    "userId": "abc123",
-    "body": "Tried this with extra garlic, way better.",
-    "createdAt": "2026-04-15T18:32:00.000Z"
-  }
-]
-```
-
-### Add comment
-
-```
-POST /meals/comment-add
-```
-
-**Body:** `{ "mealId": "<mealId>", "body": "<text>" }`
-
-`body` is required, max 2000 chars.
-
-**Response:** `201 Created` — returns the created comment.
-
-### Delete comment
-
-```
-POST /meals/comment-delete
-```
-
-**Body:** `{ "mealId": "<mealId>", "commentId": "<commentId>" }`
-
-Only the original author can delete their comment.
-
-**Response:** `204 No Content`
+\* = required.
 
 ## Authentication
 
-All endpoints require a Cognito-issued JWT in the `Authorization: Bearer <token>` header. Tokens come from the **shared Xomware User Pool** (`xomware-users`, owned by `xomware-infrastructure`). Each lambda handler resolves the caller's identity via `shared/auth.js` reading `event.requestContext.authorizer.claims.sub` (Cognito `sub` UUID = `userId` partition key on every DynamoDB table).
+Every endpoint requires a Cognito JWT in `Authorization: Bearer <token>` from the
+shared **xomware-users** pool (owned by `xomware-infrastructure`). `shared/auth.js`
+reads `event.requestContext.authorizer.claims.sub` — the Cognito `sub` UUID is the
+`userId` used throughout. Admin actions check `cognito:groups`.
 
-Sign-in flow lives in `xomappetit-frontend` (Amplify) or via the shared hosted UI at `xomware-auth.auth.us-east-1.amazoncognito.com`. Admin role is enforced via Cognito Group membership (`cognito:groups` claim).
-
-## Setup
+## Development
 
 ```bash
 npm install
-cp .env.example .env  # Edit with your values
+npm test          # node:test unit tests for shared/ modules
 ```
 
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for deployment instructions and [SCHEMA.md](./SCHEMA.md) for DynamoDB schema details.
+CI (`.github/workflows/ci.yml`) runs the test suite + a Lambda bundle dry-run on
+every PR. Merges to `main` deploy via `.github/workflows/deploy.yml`, which
+auto-discovers `functions/*` and ships each as `xomappetit-<group>-<action>`.
+
+### Seeding a starter library
+
+```bash
+AWS_REGION=us-east-1 \
+RECIPES_TABLE_NAME=xomappetit-recipes \
+COOKS_TABLE_NAME=xomappetit-cooks \
+COOK_PARTICIPANTS_TABLE_NAME=xomappetit-cook-participants \
+AUTHOR_USER_ID=<cognito-sub> \
+node scripts/seed-starter-library.js [--dry-run]
+```
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for deploy details and [SCHEMA.md](./SCHEMA.md)
+for the full data model.
