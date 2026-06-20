@@ -44,8 +44,16 @@ exports.handler = async (event) => {
 
     const isParticipant =
       (cook.chefs || []).includes(userId) || (cook.diners || []).includes(userId);
-    const isRecipeAuthor = recipe?.authorUserId === userId;
-    const recipePrivacy = recipe?.privacy || 'public';
+
+    // Recipe gone (deletes don't cascade to cooks). Don't fall back to
+    // "public" — that would expose a deleted private recipe's cook to anyone.
+    // Participants keep access to their own cook history; everyone else gets 404.
+    if (!recipe) {
+      return isParticipant ? ok(cook) : notFound('Recipe not found');
+    }
+
+    const isRecipeAuthor = recipe.authorUserId === userId;
+    const recipePrivacy = recipe.privacy || 'public';
 
     if (recipePrivacy === 'private' && !isParticipant && !isRecipeAuthor) {
       return forbidden('Cook on a private recipe');

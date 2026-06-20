@@ -4,7 +4,7 @@ const { ScanCommand } = require('@aws-sdk/lib-dynamodb');
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
 const { blockedIdsOf } = require('../../shared/blocks');
-const { ok, serverError } = require('../../shared/response');
+const { ok, badRequest, serverError } = require('../../shared/response');
 const {
   normalizeRecipe,
   normalizeTags,
@@ -37,9 +37,14 @@ exports.handler = async (event) => {
     const callerId = getUserId(event);
     const body = JSON.parse(event.body || '{}');
     const limit = Math.min(Math.max(Number(body.limit) || DEFAULT_LIMIT, 1), MAX_LIMIT);
-    const cursor = typeof body.cursor === 'string' && body.cursor
-      ? JSON.parse(Buffer.from(body.cursor, 'base64').toString('utf8'))
-      : undefined;
+    let cursor;
+    if (typeof body.cursor === 'string' && body.cursor) {
+      try {
+        cursor = JSON.parse(Buffer.from(body.cursor, 'base64').toString('utf8'));
+      } catch {
+        return badRequest('Invalid cursor');
+      }
+    }
     const wantTags = normalizeTags(body.tags || []);
     const wantProteins = normalizeProteinTypes(body.proteinTypes || []);
     const maxTime = Number.isFinite(Number(body.maxTimeMinutes))

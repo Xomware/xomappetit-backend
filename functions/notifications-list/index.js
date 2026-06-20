@@ -3,7 +3,7 @@
 const { QueryCommand } = require('@aws-sdk/lib-dynamodb');
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
-const { ok, serverError } = require('../../shared/response');
+const { ok, badRequest, serverError } = require('../../shared/response');
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
@@ -22,9 +22,14 @@ exports.handler = async (event) => {
     const userId = getUserId(event);
     const body = JSON.parse(event.body || '{}');
     const limit = Math.min(Math.max(Number(body.limit) || DEFAULT_LIMIT, 1), MAX_LIMIT);
-    const cursor = typeof body.cursor === 'string' && body.cursor
-      ? JSON.parse(Buffer.from(body.cursor, 'base64').toString('utf8'))
-      : undefined;
+    let cursor;
+    if (typeof body.cursor === 'string' && body.cursor) {
+      try {
+        cursor = JSON.parse(Buffer.from(body.cursor, 'base64').toString('utf8'));
+      } catch {
+        return badRequest('Invalid cursor');
+      }
+    }
 
     const { Items = [], LastEvaluatedKey } = await docClient.send(
       new QueryCommand({
