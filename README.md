@@ -98,8 +98,9 @@ Import endpoints try schema.org JSON-LD first, then fall back to Claude.
 | `/comment-delete` | Delete cook comment (author or chef) | `cookId`*, `commentId`* | `204` |
 
 Logging a cook writes the cook row + a `cook-participants` row per chef/diner,
-then **recomputes the recipe's rating aggregates and `cookCount` from all its
-cooks** (`shared/cook-aggregates.js`).
+then **recomputes the recipe's rating aggregates and `cookCount`**. Aggregates
+pool every cook's rating with any direct `/recipes/rate` ratings via a single
+recompute (`shared/cook-aggregates.js`), so the two rating paths never clobber.
 
 ### Friends — `/friends/*`
 | Route | Purpose | Key body fields | Success |

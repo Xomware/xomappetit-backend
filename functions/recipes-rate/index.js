@@ -1,14 +1,10 @@
 'use strict';
 
-const {
-  GetCommand,
-  PutCommand,
-  QueryCommand,
-  UpdateCommand,
-} = require('@aws-sdk/lib-dynamodb');
+const { GetCommand, PutCommand } = require('@aws-sdk/lib-dynamodb');
 const { docClient } = require('../../shared/dynamo');
 const { getUserId } = require('../../shared/auth');
 const { isFriendsWith } = require('../../shared/friendships');
+const { recomputeRecipeAggregates } = require('../../shared/cook-aggregates');
 const {
   ok,
   badRequest,
@@ -106,49 +102,16 @@ exports.handler = async (event) => {
       })
     );
 
-    // Recompute aggregates for every axis from the partition.
-    const { Items: ratings = [] } = await docClient.send(
-      new QueryCommand({
-        TableName: process.env.RECIPE_RATINGS_TABLE_NAME,
-        KeyConditionExpression: 'recipeId = :rid',
-        ExpressionAttributeValues: { ':rid': recipeId },
-      })
-    );
+    // Re-derive the recipe's aggregates from BOTH cooks and direct ratings.
+    // This is the only writer of the aggregate columns, so the direct-rating
+    // and cook-logging paths no longer clobber each other.
+    const agg = await recomputeRecipeAggregates(recipeId);
 
-    const setExprs = ['updatedAt = :now'];
-    const exprValues = { ':now': now };
-    const exprNames = {};
-    const summary = { recipeId, userId };
-
+    // Echo back the aggregates plus this user's submitted axis values.
+    const summary = { recipeId, userId, ...agg };
     for (const axis of AXES) {
-      const vals = ratings.map((r) => Number(r[axis.rowKey])).filter(Number.isFinite);
-      const count = vals.length;
-      const avg =
-        count === 0
-          ? null
-          : Number((vals.reduce((s, v) => s + v, 0) / count).toFixed(2));
-      const avgPlaceholder = `:${axis.recipeAvgKey}`;
-      const cntPlaceholder = `:${axis.recipeCountKey}`;
-      setExprs.push(`#${axis.recipeAvgKey} = ${avgPlaceholder}`);
-      setExprs.push(`#${axis.recipeCountKey} = ${cntPlaceholder}`);
-      exprNames[`#${axis.recipeAvgKey}`] = axis.recipeAvgKey;
-      exprNames[`#${axis.recipeCountKey}`] = axis.recipeCountKey;
-      exprValues[avgPlaceholder] = avg;
-      exprValues[cntPlaceholder] = count;
-      summary[axis.recipeAvgKey] = avg;
-      summary[axis.recipeCountKey] = count;
       summary[axis.bodyKey] = item[axis.rowKey];
     }
-
-    await docClient.send(
-      new UpdateCommand({
-        TableName: process.env.RECIPES_TABLE_NAME,
-        Key: { recipeId },
-        UpdateExpression: `SET ${setExprs.join(', ')}`,
-        ExpressionAttributeNames: exprNames,
-        ExpressionAttributeValues: exprValues,
-      })
-    );
 
     return ok(summary);
   } catch (err) {
